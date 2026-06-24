@@ -531,7 +531,7 @@ custom_css = """
         }
 
         /* Force brand header columns to stay side-by-side (no wrapping) */
-        div[data-testid="stHorizontalBlock"] {
+        div[data-testid="stHorizontalBlock"]:has(.brand-container) {
             display: flex !important;
             flex-direction: row !important;
             flex-wrap: nowrap !important;
@@ -539,11 +539,27 @@ custom_css = """
             justify-content: space-between !important;
             gap: 10px !important;
             margin-bottom: 12px !important;
+            width: 100% !important;
         }
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
-            width: auto !important;
-            min-width: 0 !important;
-            flex: 1 1 auto !important;
+        /* Proportional split: 65% for brand title, 35% for Admin/Logout button */
+        div[data-testid="stHorizontalBlock"]:has(.brand-container) > div[data-testid="column"]:first-child {
+            width: 65% !important;
+            max-width: 65% !important;
+            flex: 0 0 65% !important;
+            display: flex !important;
+            justify-content: flex-start !important;
+        }
+        div[data-testid="stHorizontalBlock"]:has(.brand-container) > div[data-testid="column"]:last-child {
+            width: 35% !important;
+            max-width: 35% !important;
+            flex: 0 0 35% !important;
+            display: flex !important;
+            justify-content: flex-end !important;
+        }
+
+        /* Allow other horizontal blocks to wrap normally so they don't overflow on small screens */
+        div[data-testid="stHorizontalBlock"]:not(:has(.brand-container)) {
+            flex-wrap: wrap !important;
         }
 
         /* Make brand header extremely compact */
