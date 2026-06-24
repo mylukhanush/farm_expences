@@ -11,7 +11,7 @@ import streamlit.components.v1 as components
 # ----------------------------------------------------
 st.set_page_config(
     page_title="Bunny's Farm - Expense Tracker",
-    page_icon="🐰",
+    page_icon="🌱",
     layout="centered",
     initial_sidebar_state="collapsed"
 )
@@ -40,14 +40,40 @@ custom_css = """
     
     /* Align Streamlit Columns Vertically */
     div[data-testid="column"] {
-        display: flex;
-        align-items: center;
+        display: flex !important;
+        align-items: center !important;
+    }
+    div[data-testid="column"] button {
+        margin-top: 0 !important;
+        margin-bottom: 0 !important;
+    }
+    div[data-testid="column"] div[data-testid="element-container"] {
+        margin: 0 !important;
+        display: flex !important;
+        align-items: center !important;
     }
     div[data-testid="column"]:first-child {
-        justify-content: flex-start;
+        justify-content: flex-start !important;
     }
     div[data-testid="column"]:last-child {
-        justify-content: flex-end;
+        justify-content: flex-end !important;
+    }
+
+    /* Force brand header columns to stay side-by-side and wrap tightly (beside each other) */
+    div[data-testid="stHorizontalBlock"]:has(.brand-container) {
+        display: flex !important;
+        flex-direction: row !important;
+        flex-wrap: nowrap !important;
+        align-items: center !important;
+        justify-content: flex-start !important;
+        gap: 18px !important;
+        width: 100% !important;
+        margin-bottom: 15px !important;
+    }
+    div[data-testid="stHorizontalBlock"]:has(.brand-container) > div[data-testid="column"] {
+        width: auto !important;
+        max-width: none !important;
+        flex: 0 0 auto !important;
     }
 
     /* Brand Header Logo */
@@ -404,6 +430,29 @@ custom_css = """
         filter: brightness(1.05) !important;
     }
 
+    /* Expenses Button (Go Back) */
+    button.expenses-btn-custom, .expenses-btn-container button {
+        background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important; /* Premium Emerald/Mint Green */
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        padding: 10px 20px !important;
+        font-size: 0.92rem !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 8px !important;
+    }
+    button.expenses-btn-custom:hover, .expenses-btn-container button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3) !important;
+        color: #ffffff !important;
+        filter: brightness(1.05) !important;
+    }
+
     /* Verify & Access Button */
     button.verify-btn-custom {
         background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
@@ -536,25 +585,15 @@ custom_css = """
             flex-direction: row !important;
             flex-wrap: nowrap !important;
             align-items: center !important;
-            justify-content: space-between !important;
-            gap: 10px !important;
+            justify-content: flex-start !important;
+            gap: 12px !important;
             margin-bottom: 12px !important;
             width: 100% !important;
         }
-        /* Proportional split: 65% for brand title, 35% for Admin/Logout button */
-        div[data-testid="stHorizontalBlock"]:has(.brand-container) > div[data-testid="column"]:first-child {
-            width: 65% !important;
-            max-width: 65% !important;
-            flex: 0 0 65% !important;
-            display: flex !important;
-            justify-content: flex-start !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has(.brand-container) > div[data-testid="column"]:last-child {
-            width: 35% !important;
-            max-width: 35% !important;
-            flex: 0 0 35% !important;
-            display: flex !important;
-            justify-content: flex-end !important;
+        div[data-testid="stHorizontalBlock"]:has(.brand-container) > div[data-testid="column"] {
+            width: auto !important;
+            max-width: none !important;
+            flex: 0 0 auto !important;
         }
 
         /* Allow other horizontal blocks to wrap normally so they don't overflow on small screens */
@@ -788,15 +827,16 @@ col_title, col_admin = st.columns([3, 1])
 with col_title:
     st.markdown("""
         <div class="brand-container">
-            <span class="brand-icon">🐰</span>
+            <span class="brand-icon">🌱</span>
             <span class="brand-name">Bunny's Farm</span>
         </div>
     """, unsafe_allow_html=True)
 
 with col_admin:
-    if st.session_state.is_admin:
-        st.markdown('<div class="logout-btn-container">', unsafe_allow_html=True)
-        if st.button("🚪 Logout", use_container_width=True):
+    # Toggle between Admin access and returning to Expenses entry panel
+    if st.session_state.is_admin or st.session_state.show_admin_login:
+        st.markdown('<div class="expenses-btn-container">', unsafe_allow_html=True)
+        if st.button("📝 Expenses", use_container_width=True):
             st.session_state.is_admin = False
             st.session_state.show_admin_login = False
             st.rerun()
@@ -804,7 +844,7 @@ with col_admin:
     else:
         st.markdown('<div class="admin-btn-container">', unsafe_allow_html=True)
         if st.button("🔑 Admin", use_container_width=True):
-            st.session_state.show_admin_login = not st.session_state.show_admin_login
+            st.session_state.show_admin_login = True
             st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
@@ -815,7 +855,7 @@ if st.session_state.show_admin_login and not st.session_state.is_admin:
     with st.form("admin_login_form"):
         st.markdown("""
             <div class="form-header">
-                <h3 class="form-title">🐰 Bunny's Farm - Admin Verification</h3>
+                <h3 class="form-title">🌱 Bunny's Farm - Admin Verification</h3>
                 <p class="form-subtitle">Please verify your credentials to access the command center</p>
             </div>
         """, unsafe_allow_html=True)
@@ -1115,6 +1155,194 @@ else:
             </div>
         """, unsafe_allow_html=True)
         
+        # Smart Voice Input Assistant
+        components.html(r"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+        <style>
+            @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+            body {
+                margin: 0;
+                padding: 0;
+                font-family: 'Outfit', sans-serif;
+                background: transparent;
+                overflow: hidden;
+            }
+            .voice-container {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                background: rgba(79, 70, 229, 0.04);
+                border: 1px dashed rgba(79, 70, 229, 0.25);
+                border-radius: 14px;
+                padding: 8px 12px;
+                transition: all 0.3s ease;
+                box-sizing: border-box;
+                height: 54px;
+            }
+            .voice-container.listening {
+                background: rgba(239, 68, 68, 0.05);
+                border-color: rgba(239, 68, 68, 0.4);
+                box-shadow: 0 0 12px rgba(239, 68, 68, 0.1);
+            }
+            .mic-btn {
+                width: 38px;
+                height: 38px;
+                border-radius: 50%;
+                border: none;
+                background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
+                color: white;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                font-size: 1.1rem;
+                box-shadow: 0 4px 10px rgba(79, 70, 229, 0.2);
+                transition: all 0.2s ease;
+                flex-shrink: 0;
+            }
+            .mic-btn:active {
+                transform: scale(0.92);
+            }
+            .listening .mic-btn {
+                background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
+                animation: pulse-ring 1.5s infinite;
+            }
+            @keyframes pulse-ring {
+                0% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+                70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
+                100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
+            }
+            .voice-info {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                flex-grow: 1;
+                min-width: 0;
+            }
+            .voice-title {
+                font-size: 0.85rem;
+                font-weight: 700;
+                color: #4f46e5;
+                margin: 0 0 1px 0;
+            }
+            .listening .voice-title {
+                color: #ef4444;
+            }
+            .voice-desc {
+                font-size: 0.75rem;
+                color: #64748b;
+                margin: 0;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+            }
+            .listening .voice-desc {
+                color: #ef4444;
+                font-weight: 600;
+            }
+        </style>
+        </head>
+        <body>
+        <div class="voice-container" id="container">
+            <button type="button" class="mic-btn" id="mic-btn" onclick="toggleListening()">🎙️</button>
+            <div class="voice-info">
+                <h4 class="voice-title" id="title">Smart Voice Assistant</h4>
+                <p class="voice-desc" id="desc">Tap mic & say e.g., "Labor wages 800 rupees"</p>
+            </div>
+        </div>
+
+        <script>
+            let recognition = null;
+            let isListening = false;
+            
+            if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+                const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+                recognition = new SpeechRecognition();
+                recognition.continuous = false;
+                recognition.interimResults = false;
+                recognition.lang = 'en-IN'; // Works great for Indian accents and words like "rupees"
+                
+                recognition.onstart = () => {
+                    isListening = true;
+                    document.getElementById('container').classList.add('listening');
+                    document.getElementById('title').innerText = 'Listening...';
+                    document.getElementById('desc').innerText = 'Speak expenditure and amount now...';
+                    document.getElementById('mic-btn').innerText = '🛑';
+                };
+                
+                recognition.onend = () => {
+                    isListening = false;
+                    document.getElementById('container').classList.remove('listening');
+                    document.getElementById('mic-btn').innerText = '🎙️';
+                };
+                
+                recognition.onerror = (event) => {
+                    console.error(event.error);
+                    let errMsg = 'Click mic to try again';
+                    if (event.error === 'not-allowed') errMsg = 'Mic permission denied';
+                    document.getElementById('desc').innerText = errMsg;
+                    document.getElementById('title').innerText = 'Voice Input';
+                    isListening = false;
+                    document.getElementById('container').classList.remove('listening');
+                };
+                
+                recognition.onresult = (event) => {
+                    const transcript = event.results[0][0].transcript;
+                    document.getElementById('desc').innerText = 'Heard: "' + transcript + '"';
+                    document.getElementById('title').innerText = 'Processed!';
+                    
+                    let text = transcript;
+                    
+                    // Match numbers (amount)
+                    let amountMatch = text.match(/\d+(\.\d+)?/);
+                    let amount = null;
+                    if (amountMatch) {
+                        amount = parseFloat(amountMatch[0]);
+                        text = text.replace(amountMatch[0], '');
+                    }
+                    
+                    // Clean up filler words
+                    const stopWords = ['rupees', 'rupee', 'rs', 'inr', 'spent', 'for', 'on', 'bought', 'paid', 'to', 'of', 'and'];
+                    const words = text.toLowerCase().split(/\s+/);
+                    const cleanedWords = words.filter(w => !stopWords.includes(w) && w.trim() !== '');
+                    
+                    let expenditure = cleanedWords.join(' ');
+                    if (expenditure) {
+                        expenditure = expenditure.charAt(0).toUpperCase() + expenditure.slice(1);
+                    } else {
+                        expenditure = "Voice Expense";
+                    }
+                    
+                    // Send to parent window
+                    window.parent.postMessage({
+                        type: 'voice_input',
+                        expenditure: expenditure,
+                        amount: amount,
+                        raw: transcript
+                    }, '*');
+                };
+            } else {
+                document.getElementById('mic-btn').disabled = true;
+                document.getElementById('mic-btn').style.background = '#94a3b8';
+                document.getElementById('title').innerText = 'Speech Not Supported';
+                document.getElementById('desc').innerText = 'Use Chrome/Safari for voice input';
+            }
+            
+            function toggleListening() {
+                if (!recognition) return;
+                if (isListening) {
+                    recognition.stop();
+                } else {
+                    recognition.start();
+                }
+            }
+        </script>
+        </body>
+        </html>
+        """, height=60)
+
         st.markdown('<label class="custom-input-label">Expenditure Details</label>', unsafe_allow_html=True)
         expenditure = st.text_input("Expenditure", placeholder="e.g. Tractor fuel, seeds, labor...", label_visibility="collapsed")
         
@@ -1174,6 +1402,12 @@ components.html("""
                     btn.classList.add('logout-btn-custom');
                 }
             }
+            // Check for Expenses button
+            else if (text.includes('Expenses')) {
+                if (!btn.classList.contains('expenses-btn-custom')) {
+                    btn.classList.add('expenses-btn-custom');
+                }
+            }
             // Check for Admin button
             else if (text.includes('Admin')) {
                 if (!btn.classList.contains('admin-btn-custom')) {
@@ -1214,5 +1448,66 @@ components.html("""
     if (!window.buttonSpacerInterval) {
         window.buttonSpacerInterval = setInterval(styleButtons, 200);
     }
+
+    // --- React controlled input setter bypass ---
+    const setReactInputValue = (inputElement, value) => {
+        if (!inputElement) return;
+        const valueSetter = Object.getOwnPropertyDescriptor(inputElement, '__proto__', 'value') || 
+                            Object.getOwnPropertyDescriptor(inputElement, 'value');
+        const prototype = Object.getPrototypeOf(inputElement);
+        const prototypeValueSetter = Object.getOwnPropertyDescriptor(prototype, 'value');
+        
+        if (prototypeValueSetter && prototypeValueSetter.set) {
+            prototypeValueSetter.set.call(inputElement, value);
+        } else if (valueSetter && valueSetter.set) {
+            valueSetter.set.call(inputElement, value);
+        } else {
+            inputElement.value = value;
+        }
+        inputElement.dispatchEvent(new Event('input', { bubbles: true }));
+        inputElement.dispatchEvent(new Event('change', { bubbles: true }));
+    };
+
+    // Listen for messages from the voice component iframe on the PARENT window
+    window.parent.addEventListener('message', (event) => {
+        if (event.data && event.data.type === 'voice_input') {
+            const data = event.data;
+            const doc = window.parent.document;
+            if (!doc) return;
+            
+            // Find expenditure input and amount input
+            const inputs = doc.querySelectorAll('input');
+            let expInput = null;
+            let amtInput = null;
+            
+            inputs.forEach(input => {
+                const placeholder = input.getAttribute('placeholder') || '';
+                if (placeholder.includes('Tractor fuel') || placeholder.includes('seeds')) {
+                    expInput = input;
+                } else if (placeholder.includes('0.00') || input.getAttribute('type') === 'number') {
+                    amtInput = input;
+                }
+            });
+            
+            // Fallbacks
+            if (!expInput) {
+                const textInputs = doc.querySelectorAll('div[data-testid="stTextInput"] input');
+                if (textInputs.length > 0) expInput = textInputs[0];
+            }
+            if (!amtInput) {
+                const numInputs = doc.querySelectorAll('div[data-testid="stNumberInput"] input');
+                if (numInputs.length > 0) amtInput = numInputs[0];
+            }
+            
+            // Set the values
+            if (expInput && data.expenditure) {
+                setReactInputValue(expInput, data.expenditure);
+            }
+            
+            if (amtInput && data.amount !== null) {
+                setReactInputValue(amtInput, data.amount);
+            }
+        }
+    });
 </script>
 """, height=0, width=0)
