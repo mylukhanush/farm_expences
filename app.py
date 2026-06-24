@@ -505,6 +505,187 @@ custom_css = """
         margin: 0 !important;
         line-height: 1.4;
     }
+
+    /* ----------------------------------------------------
+       Mobile View - Slide Fit Optimization (No Scrolling)
+       ---------------------------------------------------- */
+    @media (max-width: 768px) {
+        /* Lock outer page to prevent double scrollbars and achieve app-slide feel */
+        html, body, [data-testid="stAppViewContainer"], .main {
+            overflow: hidden !important;
+            height: 100vh !important;
+            max-height: 100vh !important;
+        }
+
+        /* Allow smooth scrolling ONLY within the main block container if keyboard opens */
+        div[data-testid="stAppViewBlockContainer"], .block-container {
+            padding-top: 1rem !important;
+            padding-bottom: 1rem !important;
+            padding-left: 0.8rem !important;
+            padding-right: 0.8rem !important;
+            height: 100vh !important;
+            overflow-y: auto !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: flex-start !important;
+        }
+
+        /* Force brand header columns to stay side-by-side (no wrapping) */
+        div[data-testid="stHorizontalBlock"] {
+            display: flex !important;
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            align-items: center !important;
+            justify-content: space-between !important;
+            gap: 10px !important;
+            margin-bottom: 12px !important;
+        }
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {
+            width: auto !important;
+            min-width: 0 !important;
+            flex: 1 1 auto !important;
+        }
+
+        /* Make brand header extremely compact */
+        .brand-container {
+            padding: 0 !important;
+            gap: 6px !important;
+        }
+        .brand-icon {
+            font-size: 1.3rem !important;
+        }
+        .brand-name {
+            font-size: 1.3rem !important;
+        }
+
+        /* Small header buttons (Admin/Logout) */
+        .admin-btn-container button, .logout-btn-container button,
+        div[data-testid="column"] button {
+            padding: 6px 12px !important;
+            font-size: 0.78rem !important;
+            height: auto !important;
+            min-height: unset !important;
+            border-radius: 8px !important;
+        }
+
+        /* Compact form containers */
+        div[data-testid="stForm"], .form-container {
+            padding: 15px !important;
+            margin-bottom: 10px !important;
+            border-radius: 14px !important;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.01) !important;
+        }
+        
+        .form-header {
+            margin-bottom: 10px !important;
+        }
+        .form-title {
+            font-size: 1.05rem !important;
+        }
+        .form-subtitle {
+            font-size: 0.75rem !important;
+        }
+
+        /* Compact input labels & fields */
+        .custom-input-label {
+            font-size: 0.75rem !important;
+            margin-bottom: 4px !important;
+        }
+        div[data-testid="stTextInput"] input, 
+        div[data-testid="stNumberInput"] input,
+        div[data-testid="stSelectbox"] div[role="button"] {
+            padding: 8px 10px !important;
+            font-size: 0.85rem !important;
+            border-radius: 10px !important;
+        }
+
+        /* Tighten vertical spacing of Streamlit elements */
+        div[data-testid="element-container"] {
+            margin-bottom: 0.35rem !important;
+        }
+
+        /* Compact action buttons */
+        .primary-btn-container button,
+        button.submit-btn-custom,
+        button.verify-btn-custom {
+            padding: 10px 16px !important;
+            font-size: 0.88rem !important;
+            border-radius: 10px !important;
+        }
+
+        /* Hide footer on mobile to maximize viewport space */
+        .footer-text {
+            display: none !important;
+        }
+
+        /* ------------------ Admin Dashboard Mobile Optimizations ------------------ */
+        .admin-header {
+            margin-bottom: 10px !important;
+            padding: 2px 0 !important;
+        }
+        .admin-badge {
+            font-size: 0.6rem !important;
+            padding: 2px 6px !important;
+            margin-bottom: 2px !important;
+        }
+        .admin-title {
+            font-size: 1.3rem !important;
+        }
+        .admin-subtitle {
+            font-size: 0.78rem !important;
+        }
+
+        /* Force metric cards side-by-side to save vertical space */
+        .metric-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+            gap: 8px !important;
+            margin-bottom: 10px !important;
+        }
+        .metric-card {
+            padding: 10px 10px !important;
+            border-radius: 10px !important;
+            gap: 6px !important;
+        }
+        .metric-icon-container {
+            width: 30px !important;
+            height: 30px !important;
+            font-size: 0.9rem !important;
+            border-radius: 6px !important;
+        }
+        .metric-val {
+            font-size: 1rem !important;
+        }
+        .metric-label {
+            font-size: 0.62rem !important;
+        }
+        .metric-desc {
+            display: none !important; /* Hide descriptions on mobile to stay neat */
+        }
+
+        /* Compact Segmented Control Tabs */
+        div[data-baseweb="tab-list"] {
+            padding: 4px !important;
+            border-radius: 8px !important;
+            gap: 2px !important;
+            margin-bottom: 10px !important;
+        }
+        div[data-baseweb="tab-list"] button {
+            padding: 6px 8px !important;
+            font-size: 0.75rem !important;
+            border-radius: 6px !important;
+            flex-grow: 1 !important;
+        }
+
+        /* Hide unnecessary empty state decorations */
+        .empty-state {
+            padding: 20px 10px !important;
+            border-radius: 10px !important;
+        }
+        .empty-state-icon {
+            font-size: 1.8rem !important;
+            margin-bottom: 6px !important;
+        }
+    }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
