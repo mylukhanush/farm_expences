@@ -50,8 +50,13 @@ if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 if "show_admin_login" not in st.session_state:
     st.session_state.show_admin_login = False
-if "last_recorded_expense" not in st.session_state:
-    st.session_state.last_recorded_expense = None
+if "show_toast" not in st.session_state:
+    st.session_state.show_toast = None
+
+# Show premium, auto-dismissing toast notification upon successful submission
+if st.session_state.show_toast:
+    st.toast(st.session_state.show_toast, icon="🎉")
+    st.session_state.show_toast = None
 
 # Load persistent settings
 app_settings = load_settings()
@@ -59,11 +64,6 @@ if "whatsapp_phone" not in st.session_state:
     st.session_state.whatsapp_phone = app_settings.get("whatsapp_phone", "")
 if "whatsapp_apikey" not in st.session_state:
     st.session_state.whatsapp_apikey = app_settings.get("whatsapp_apikey", "")
-
-# Show success toast if redirecting from a successful submission
-if "success_toast_msg" in st.session_state and st.session_state.success_toast_msg:
-    st.toast(st.session_state.success_toast_msg, icon="✅")
-    st.session_state.success_toast_msg = None
 
 # ----------------------------------------------------
 # Background Automation Scheduler for WhatsApp Summaries
@@ -2030,20 +2030,53 @@ else:
                         const reader = new FileReader();
                         
                         reader.onload = function(e) {
-                            const base64Data = e.target.result;
-                            
-                            // Add to our image collection
-                            images.push({
-                                base64: base64Data,
-                                filename: file.name
-                            });
-                            
-                            // Clear input so same image can be reselected if deleted
-                            input.value = '';
-                            
-                            // Update display and parent state
-                            updateUI();
-                            notifyParent();
+                            const img = new Image();
+                            img.onload = function() {
+                                // Create HTML5 canvas for compression
+                                const canvas = document.createElement('canvas');
+                                let width = img.width;
+                                let height = img.height;
+                                
+                                // Set maximum dimensions (perfect for receipts, keeps text sharp)
+                                const MAX_WIDTH = 1024;
+                                const MAX_HEIGHT = 1024;
+                                
+                                if (width > height) {
+                                    if (width > MAX_WIDTH) {
+                                        height *= MAX_WIDTH / width;
+                                        width = MAX_WIDTH;
+                                    }
+                                } else {
+                                    if (height > MAX_HEIGHT) {
+                                        width *= MAX_HEIGHT / height;
+                                        height = MAX_HEIGHT;
+                                    }
+                                }
+                                
+                                canvas.width = width;
+                                canvas.height = height;
+                                
+                                // Draw and compress
+                                const ctx = canvas.getContext('2d');
+                                ctx.drawImage(img, 0, 0, width, height);
+                                
+                                // Export as high-quality JPEG (quality: 0.75)
+                                const compressedBase64 = canvas.toDataURL('image/jpeg', 0.75);
+                                
+                                // Add compressed image to collection
+                                images.push({
+                                    base64: compressedBase64,
+                                    filename: file.name.replace(/\.[^/.]+$/, "") + ".jpg"
+                                });
+                                
+                                // Clear input so same image can be reselected if deleted
+                                input.value = '';
+                                
+                                // Update UI and notify Streamlit
+                                updateUI();
+                                notifyParent();
+                            };
+                            img.src = e.target.result;
                         };
                         
                         reader.readAsDataURL(file);
@@ -2216,8 +2249,8 @@ else:
                 
                 df_expenses = pd.concat([df_expenses, new_entry], ignore_index=True)
                 if save_expenses(df_expenses):
-                    # Set a temporary success toast message to show on next rerun
-                    st.session_state.success_toast_msg = f"Recorded: ₹{amount:,.2f} for '{expenditure.strip()}'"
+                    # Set elegant toast message and trigger rerun
+                    st.session_state.show_toast = f"Logged successfully: ₹{amount:,.2f} for \"{expenditure.strip()}\""
                     st.rerun()
     st.caption("🔒 Analytics and history records are restricted to Admins. Click the 'Admin' button above to log in.")
 
