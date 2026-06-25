@@ -2,6 +2,9 @@ import streamlit as st
 import pandas as pd
 import datetime
 import os
+import json
+import base64
+import urllib.parse
 import plotly.express as px
 import streamlit.components.v1 as components
 
@@ -16,11 +19,39 @@ st.set_page_config(
     initial_sidebar_state="collapsed"
 )
 
+# Settings Persistence Helpers
+SETTINGS_FILE = "settings.json"
+
+def load_settings():
+    default_settings = {"whatsapp_phone": ""}
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, "r") as f:
+                return json.load(f)
+        except Exception:
+            return default_settings
+    return default_settings
+
+def save_settings(settings):
+    try:
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(settings, f)
+        return True
+    except Exception:
+        return False
+
 # Initialize Session States
 if "is_admin" not in st.session_state:
     st.session_state.is_admin = False
 if "show_admin_login" not in st.session_state:
     st.session_state.show_admin_login = False
+if "last_recorded_expense" not in st.session_state:
+    st.session_state.last_recorded_expense = None
+
+# Load persistent settings
+app_settings = load_settings()
+if "whatsapp_phone" not in st.session_state:
+    st.session_state.whatsapp_phone = app_settings.get("whatsapp_phone", "")
 
 # ----------------------------------------------------
 # Custom Premium Styling
@@ -453,6 +484,29 @@ custom_css = """
         filter: brightness(1.05) !important;
     }
 
+    /* WhatsApp Button */
+    button.whatsapp-btn-custom, .whatsapp-btn-container button {
+        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%) !important; /* Official WhatsApp Green */
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 12px !important;
+        font-weight: 600 !important;
+        padding: 10px 20px !important;
+        font-size: 0.92rem !important;
+        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        box-shadow: 0 4px 12px rgba(37, 211, 102, 0.2) !important;
+        display: flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 8px !important;
+    }
+    button.whatsapp-btn-custom:hover, .whatsapp-btn-container button:hover {
+        transform: translateY(-2px) !important;
+        box-shadow: 0 8px 20px rgba(37, 211, 102, 0.3) !important;
+        color: #ffffff !important;
+        filter: brightness(1.05) !important;
+    }
+
     /* Verify & Access Button */
     button.verify-btn-custom {
         background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
@@ -741,6 +795,18 @@ custom_css = """
             margin-bottom: 6px !important;
         }
     }
+    
+    /* Hidden Input Container for Custom Image Picker */
+    .hidden-input-container {
+        position: absolute !important;
+        left: -9999px !important;
+        top: -9999px !important;
+        height: 0px !important;
+        width: 0px !important;
+        overflow: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }
 </style>
 """
 st.markdown(custom_css, unsafe_allow_html=True)
@@ -757,6 +823,9 @@ def load_expenses():
             df['Date'] = pd.to_datetime(df['Date']).dt.date
             df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce')
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
+            if 'Receipt_Image' not in df.columns:
+                df['Receipt_Image'] = ""
+            df['Receipt_Image'] = df['Receipt_Image'].fillna("")
             return df
         except Exception as e:
             st.error(f"Error loading Excel file: {e}. Starting fresh.")
@@ -767,7 +836,8 @@ def load_expenses():
         "Timestamp": datetime.datetime.now() - datetime.timedelta(hours=1),
         "Date": today_date,
         "Amount": 150.00,
-        "Expenditure": "Sample Coffee & Snacks"
+        "Expenditure": "Sample Coffee & Snacks",
+        "Receipt_Image": ""
     }])
     
     # Save default entry immediately
@@ -976,6 +1046,34 @@ if st.session_state.is_admin:
                 hide_index=True,
                 use_container_width=True
             )
+            
+            # Show receipt images gallery if any are uploaded on this day
+            if 'Receipt_Image' in display_df.columns:
+                df_with_images = display_df[display_df['Receipt_Image'] != ""]
+                if not df_with_images.empty:
+                    st.markdown('<p style="color: #475569; font-size: 0.92rem; font-weight: 700; margin-top: 20px; margin-bottom: 10px;">📸 Attached Receipts & Photos</p>', unsafe_allow_html=True)
+                    
+                    cols = st.columns(3)
+                    for idx, (_, row) in enumerate(df_with_images.iterrows()):
+                        col_idx = idx % 3
+                        with cols[col_idx]:
+                            img_path = row['Receipt_Image']
+                            if os.path.exists(img_path):
+                                st.image(img_path, use_container_width=True)
+                                st.markdown(f"""
+                                    <div style="
+                                        background: #f8fafc;
+                                        border: 1px solid #e2e8f0;
+                                        border-radius: 8px;
+                                        padding: 8px;
+                                        margin-top: -8px;
+                                        margin-bottom: 15px;
+                                        text-align: center;
+                                    ">
+                                        <p style="color: #0f172a; font-weight: 700; font-size: 0.8rem; margin: 0;">₹{row['Amount']:,.2f}</p>
+                                        <p style="color: #64748b; font-size: 0.7rem; margin: 2px 0 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{row['Expenditure']}</p>
+                                    </div>
+                                """, unsafe_allow_html=True)
         else:
             st.markdown(f"""
                 <div class="empty-state">
@@ -1087,6 +1185,82 @@ if st.session_state.is_admin:
             st.info("Database file not generated yet.")
             
         st.divider()
+        
+        # WhatsApp Notifications Configurations & Compiler
+        st.markdown("""
+            <div class="section-header" style="margin-top: 10px;">
+                <div>
+                    <h3 class="section-title">📱 WhatsApp Notifications</h3>
+                    <p class="section-subtitle">Configure owner's contact and compile instant daily summaries</p>
+                </div>
+            </div>
+        """, unsafe_allow_html=True)
+        
+        col_phone_input, col_phone_save = st.columns([3, 1])
+        with col_phone_input:
+            phone_number = st.text_input(
+                "Owner's WhatsApp Number (with country code, e.g., 919876543210)",
+                value=st.session_state.whatsapp_phone,
+                placeholder="e.g. 919876543210",
+                label_visibility="collapsed",
+                key="whatsapp_phone_input"
+            )
+        with col_phone_save:
+            if st.button("💾 Save Contact", use_container_width=True, key="save_whatsapp_phone_btn"):
+                # Strip non-numeric characters
+                cleaned_phone = "".join(c for c in phone_number if c.isdigit())
+                st.session_state.whatsapp_phone = cleaned_phone
+                save_settings({"whatsapp_phone": cleaned_phone})
+                st.success("WhatsApp contact saved!")
+                st.rerun()
+                
+        # Daily Summary Generator
+        st.markdown('<p style="color: #475569; font-size: 0.88rem; font-weight: 600; margin-top: 15px; margin-bottom: 8px;">📊 Today\'s WhatsApp Summary Compiler</p>', unsafe_allow_html=True)
+        
+        # Calculate today's entries
+        today_date = datetime.date.today()
+        df_today = df_expenses[df_expenses['Date'] == today_date]
+        
+        if not df_today.empty:
+            total_spent = df_today['Amount'].sum()
+            entries_count = len(df_today)
+            
+            # Format the breakdown message
+            message_lines = [
+                "🌱 *Bunny's Farm Daily Expense Summary*",
+                f"📅 *Date:* {today_date.strftime('%d-%b-%Y')}",
+                "-----------------------------",
+                f"Total Spent Today: *₹{total_spent:,.2f}*",
+                f"Total Transactions: *{entries_count} entries*",
+                "",
+                "*Breakdown:*"
+            ]
+            
+            for idx, row in df_today.sort_values(by="Timestamp", ascending=True).iterrows():
+                # Format timestamp safely
+                time_str = row['Timestamp'].strftime('%I:%M %p') if isinstance(row['Timestamp'], datetime.datetime) else ""
+                message_lines.append(f"• {row['Expenditure']}: *₹{row['Amount']:,.2f}* ({time_str})")
+                
+            message_lines.append("-----------------------------")
+            message_lines.append("_Generated by FinTrack Expense Tracker._")
+            
+            summary_text = "\n".join(message_lines)
+            
+            # Show preview
+            st.text_area("Message Preview", value=summary_text, height=140, disabled=True, key="whatsapp_summary_preview")
+            
+            # Create WhatsApp URL
+            encoded_text = urllib.parse.quote(summary_text)
+            whatsapp_url = f"https://api.whatsapp.com/send?text={encoded_text}"
+            if st.session_state.whatsapp_phone:
+                whatsapp_url = f"https://api.whatsapp.com/send?phone={st.session_state.whatsapp_phone}&text={encoded_text}"
+                
+            # Render link button
+            st.link_button("💬 Send Daily Summary via WhatsApp", whatsapp_url, use_container_width=True)
+        else:
+            st.info("No transactions logged today yet. Record some expenses to compile a summary!")
+            
+        st.divider()
         col_maint_title, col_maint_date = st.columns([2, 1])
         with col_maint_title:
             st.markdown("""
@@ -1135,6 +1309,15 @@ if st.session_state.is_admin:
                 st.markdown('<div class="danger-btn-container" style="margin-top: 15px;">', unsafe_allow_html=True)
                 btn_label = "🗑️ Delete Selected Entry" if len(selected_indices) == 1 else f"🗑️ Delete {len(selected_indices)} Selected Entries"
                 if st.button(btn_label, use_container_width=True):
+                    # Delete physical files from disk first
+                    for idx in selected_indices:
+                        if idx in df_expenses.index:
+                            img_to_delete = df_expenses.loc[idx, 'Receipt_Image']
+                            if img_to_delete and os.path.exists(img_to_delete):
+                                try:
+                                    os.remove(img_to_delete)
+                                except Exception:
+                                    pass
                     df_expenses = df_expenses.drop(selected_indices)
                     if save_expenses(df_expenses):
                         st.success(f"Successfully deleted {len(selected_indices)} record(s)!")
@@ -1147,15 +1330,53 @@ if st.session_state.is_admin:
 
 else:
     # ------------------ REGULAR USER MODE ------------------
-    with st.form("public_entry_form", clear_on_submit=True):
-        st.markdown("""
-            <div class="form-header">
-                <h3 class="form-title">📝 Record New Expense</h3>
-                <p class="form-subtitle">Add details below to log this transaction to the ledger</p>
+    # Show Success Notification with WhatsApp Alert Button
+    if "last_recorded_expense" in st.session_state and st.session_state.last_recorded_expense:
+        last_exp = st.session_state.last_recorded_expense
+        
+        # Prepare WhatsApp message
+        formatted_time = last_exp["timestamp"].strftime('%d-%b-%Y %I:%M %p')
+        alert_msg = (
+            "🌱 *Bunny's Farm Expense Alert*\n"
+            "-----------------------------\n"
+            f"📝 *Detail:* {last_exp['expenditure']}\n"
+            f"💰 *Amount:* ₹{last_exp['amount']:,.2f}\n"
+            f"📅 *Date/Time:* {formatted_time}\n"
+            "-----------------------------\n"
+            "_Logged successfully in FinTrack Ledger._"
+        )
+        encoded_alert = urllib.parse.quote(alert_msg)
+        whatsapp_alert_url = f"https://api.whatsapp.com/send?text={encoded_alert}"
+        if st.session_state.whatsapp_phone:
+            whatsapp_alert_url = f"https://api.whatsapp.com/send?phone={st.session_state.whatsapp_phone}&text={encoded_alert}"
+            
+        st.markdown(f"""
+            <div style="
+                background: linear-gradient(135deg, rgba(16, 185, 129, 0.04) 0%, rgba(5, 150, 105, 0.04) 100%);
+                border: 1px solid rgba(16, 185, 129, 0.2);
+                border-radius: 14px;
+                padding: 14px;
+                margin-bottom: 15px;
+                box-shadow: 0 4px 15px rgba(16, 185, 129, 0.03);
+            ">
+                <h4 style="color: #047857; margin: 0 0 2px 0; font-size: 0.95rem; font-weight: 700; font-family: 'Outfit', sans-serif;">🎉 Expense Recorded Successfully!</h4>
+                <p style="color: #475569; margin: 0; font-size: 0.85rem; font-family: 'Outfit', sans-serif;">
+                    Spent <b>₹{last_exp['amount']:,.2f}</b> on <b>"{last_exp['expenditure']}"</b>.
+                </p>
             </div>
         """, unsafe_allow_html=True)
         
-        # Smart Voice Input Assistant
+        col_alert_send, col_alert_dismiss = st.columns([3, 1])
+        with col_alert_send:
+            st.link_button("💬 Send WhatsApp Alert", whatsapp_alert_url, use_container_width=True)
+        with col_alert_dismiss:
+            if st.button("Dismiss ✅", use_container_width=True, key="dismiss_success_btn"):
+                st.session_state.last_recorded_expense = None
+                st.rerun()
+        st.divider()
+
+    with st.form("public_entry_form", clear_on_submit=True):
+        # Combined Header & Smart Voice Assistant side-by-side
         components.html(r"""
         <!DOCTYPE html>
         <html>
@@ -1169,26 +1390,50 @@ else:
                 background: transparent;
                 overflow: hidden;
             }
-            .voice-container {
+            .header-container {
+                display: flex;
+                flex-direction: row;
+                align-items: center;
+                justify-content: space-between;
+                width: 100%;
+                height: 56px;
+                box-sizing: border-box;
+            }
+            .text-section {
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                min-width: 0;
+                flex-grow: 1;
+            }
+            .title {
+                font-size: 1.15rem;
+                font-weight: 700;
+                color: #1e293b;
+                margin: 0;
+                line-height: 1.2;
+            }
+            .subtitle {
+                font-size: 0.75rem;
+                color: #64748b;
+                margin: 2px 0 0 0;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
+                transition: all 0.3s ease;
+            }
+            
+            /* Compact Mic Section */
+            .mic-section {
                 display: flex;
                 align-items: center;
-                gap: 12px;
-                background: rgba(79, 70, 229, 0.04);
-                border: 1px dashed rgba(79, 70, 229, 0.25);
-                border-radius: 14px;
-                padding: 8px 12px;
-                transition: all 0.3s ease;
-                box-sizing: border-box;
-                height: 54px;
-            }
-            .voice-container.listening {
-                background: rgba(239, 68, 68, 0.05);
-                border-color: rgba(239, 68, 68, 0.4);
-                box-shadow: 0 0 12px rgba(239, 68, 68, 0.1);
+                gap: 8px;
+                flex-shrink: 0;
+                position: relative;
             }
             .mic-btn {
-                width: 38px;
-                height: 38px;
+                width: 40px;
+                height: 40px;
                 border-radius: 50%;
                 border: none;
                 background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
@@ -1197,14 +1442,17 @@ else:
                 align-items: center;
                 justify-content: center;
                 cursor: pointer;
-                font-size: 1.1rem;
+                font-size: 1.15rem;
                 box-shadow: 0 4px 10px rgba(79, 70, 229, 0.2);
                 transition: all 0.2s ease;
-                flex-shrink: 0;
+                position: relative;
+                z-index: 5;
             }
             .mic-btn:active {
                 transform: scale(0.92);
             }
+            
+            /* Listening State */
             .listening .mic-btn {
                 background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%);
                 animation: pulse-ring 1.5s infinite;
@@ -1214,42 +1462,34 @@ else:
                 70% { box-shadow: 0 0 0 8px rgba(239, 68, 68, 0); }
                 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0); }
             }
-            .voice-info {
-                display: flex;
-                flex-direction: column;
-                justify-content: center;
-                flex-grow: 1;
-                min-width: 0;
-            }
-            .voice-title {
-                font-size: 0.85rem;
+            
+            /* Listening text indicator */
+            .status-text {
+                font-size: 0.72rem;
                 font-weight: 700;
-                color: #4f46e5;
-                margin: 0 0 1px 0;
-            }
-            .listening .voice-title {
                 color: #ef4444;
-            }
-            .voice-desc {
-                font-size: 0.75rem;
-                color: #64748b;
-                margin: 0;
+                display: none;
+                animation: fadeIn 0.2s ease;
                 white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
             }
-            .listening .voice-desc {
-                color: #ef4444;
-                font-weight: 600;
+            .listening .status-text {
+                display: block;
+            }
+            @keyframes fadeIn {
+                from { opacity: 0; transform: translateX(5px); }
+                to { opacity: 1; transform: translateX(0); }
             }
         </style>
         </head>
         <body>
-        <div class="voice-container" id="container">
-            <button type="button" class="mic-btn" id="mic-btn" onclick="toggleListening()">🎙️</button>
-            <div class="voice-info">
-                <h4 class="voice-title" id="title">Smart Voice Assistant</h4>
-                <p class="voice-desc" id="desc">Tap mic & say e.g., "Labor wages 800 rupees"</p>
+        <div class="header-container" id="container">
+            <div class="text-section">
+                <h3 class="title">📝 Record New Expense</h3>
+                <p class="subtitle" id="subtitle-text">Add details below to log transaction</p>
+            </div>
+            <div class="mic-section">
+                <span class="status-text" id="status-el">Listening...</span>
+                <button type="button" class="mic-btn" id="mic-btn" onclick="toggleListening()" title="Smart Voice Assistant">🎙️</button>
             </div>
         </div>
 
@@ -1262,19 +1502,23 @@ else:
                 recognition = new SpeechRecognition();
                 recognition.continuous = false;
                 recognition.interimResults = false;
-                recognition.lang = 'en-IN'; // Works great for Indian accents and words like "rupees"
+                recognition.lang = 'en-IN'; // Optimized for Indian accents & keywords like "rupees"
                 
                 recognition.onstart = () => {
                     isListening = true;
                     document.getElementById('container').classList.add('listening');
-                    document.getElementById('title').innerText = 'Listening...';
-                    document.getElementById('desc').innerText = 'Speak expenditure and amount now...';
+                    document.getElementById('subtitle-text').innerText = 'Speak expenditure & amount now...';
+                    document.getElementById('subtitle-text').style.color = '#ef4444';
+                    document.getElementById('subtitle-text').style.fontWeight = '600';
                     document.getElementById('mic-btn').innerText = '🛑';
                 };
                 
                 recognition.onend = () => {
                     isListening = false;
                     document.getElementById('container').classList.remove('listening');
+                    document.getElementById('subtitle-text').innerText = 'Add details below to log transaction';
+                    document.getElementById('subtitle-text').style.color = '#64748b';
+                    document.getElementById('subtitle-text').style.fontWeight = 'normal';
                     document.getElementById('mic-btn').innerText = '🎙️';
                 };
                 
@@ -1282,37 +1526,36 @@ else:
                     console.error(event.error);
                     let errMsg = 'Click mic to try again';
                     if (event.error === 'not-allowed') errMsg = 'Mic permission denied';
-                    document.getElementById('desc').innerText = errMsg;
-                    document.getElementById('title').innerText = 'Voice Input';
+                    document.getElementById('subtitle-text').innerText = errMsg;
+                    document.getElementById('subtitle-text').style.color = '#ef4444';
                     isListening = false;
                     document.getElementById('container').classList.remove('listening');
+                    document.getElementById('mic-btn').innerText = '🎙️';
                 };
                 
                 recognition.onresult = (event) => {
                     const transcript = event.results[0][0].transcript;
-                    document.getElementById('desc').innerText = 'Heard: "' + transcript + '"';
-                    document.getElementById('title').innerText = 'Processed!';
                     
-                    let text = transcript;
-                    
-                    // Match numbers (amount)
-                    let amountMatch = text.match(/\d+(\.\d+)?/);
+                    // Extract amount and expenditure from the vocal command
                     let amount = null;
-                    if (amountMatch) {
-                        amount = parseFloat(amountMatch[0]);
-                        text = text.replace(amountMatch[0], '');
+                    let expenditure = "";
+                    
+                    const numMatch = transcript.match(/\d+(\.\d+)?/);
+                    if (numMatch) {
+                        amount = parseFloat(numMatch[0]);
+                        
+                        // Expenditure is everything before the number, cleaned up
+                        const numberIndex = transcript.indexOf(numMatch[0]);
+                        expenditure = transcript.substring(0, numberIndex).trim();
+                        
+                        // Strip trailing/leading connector words
+                        expenditure = expenditure.replace(/\b(for|of|worth|spent|rs|rupees|rupee)\b/gi, '').trim();
+                    } else {
+                        expenditure = transcript;
                     }
                     
-                    // Clean up filler words
-                    const stopWords = ['rupees', 'rupee', 'rs', 'inr', 'spent', 'for', 'on', 'bought', 'paid', 'to', 'of', 'and'];
-                    const words = text.toLowerCase().split(/\s+/);
-                    const cleanedWords = words.filter(w => !stopWords.includes(w) && w.trim() !== '');
-                    
-                    let expenditure = cleanedWords.join(' ');
                     if (expenditure) {
                         expenditure = expenditure.charAt(0).toUpperCase() + expenditure.slice(1);
-                    } else {
-                        expenditure = "Voice Expense";
                     }
                     
                     // Send to parent window
@@ -1326,8 +1569,7 @@ else:
             } else {
                 document.getElementById('mic-btn').disabled = true;
                 document.getElementById('mic-btn').style.background = '#94a3b8';
-                document.getElementById('title').innerText = 'Speech Not Supported';
-                document.getElementById('desc').innerText = 'Use Chrome/Safari for voice input';
+                document.getElementById('subtitle-text').innerText = 'Voice input not supported on this browser';
             }
             
             function toggleListening() {
@@ -1341,13 +1583,291 @@ else:
         </script>
         </body>
         </html>
-        """, height=60)
+        """, height=56)
 
         st.markdown('<label class="custom-input-label">Expenditure Details</label>', unsafe_allow_html=True)
         expenditure = st.text_input("Expenditure", placeholder="e.g. Tractor fuel, seeds, labor...", label_visibility="collapsed")
         
-        st.markdown('<label class="custom-input-label">Amount Spent (₹)</label>', unsafe_allow_html=True)
-        amount = st.number_input("Amount (₹)", min_value=0.0, value=None, step=10.0, format="%.2f", placeholder="0.00", label_visibility="collapsed")
+        # Side-by-side columns for Amount and Image Picker
+        col_amt, col_img = st.columns([1, 1])
+        
+        with col_amt:
+            st.markdown('<label class="custom-input-label">Amount Spent (₹)</label>', unsafe_allow_html=True)
+            amount = st.number_input("Amount (₹)", min_value=0.0, value=None, step=10.0, format="%.2f", placeholder="0.00", label_visibility="collapsed")
+            
+        with col_img:
+            st.markdown('<label class="custom-input-label">📸 Photo / Receipt</label>', unsafe_allow_html=True)
+            components.html(r"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+            <style>
+                @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
+                body {
+                    margin: 0;
+                    padding: 0;
+                    font-family: 'Outfit', sans-serif;
+                    background: transparent;
+                    overflow: hidden;
+                }
+                .dotted-box {
+                    border: 2px dashed #cbd5e1;
+                    border-radius: 10px;
+                    height: 44px; /* Matches Streamlit input height perfectly */
+                    display: flex;
+                    flex-direction: row;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+                    position: relative;
+                    background: rgba(248, 250, 252, 0.6);
+                    box-sizing: border-box;
+                    padding: 0 6px;
+                }
+                .dotted-box:hover {
+                    border-color: #4f46e5;
+                    background: rgba(79, 70, 229, 0.02);
+                }
+                .dotted-box:active {
+                    transform: scale(0.98);
+                }
+                .state-container {
+                    width: 100%;
+                    height: 100%;
+                    display: flex;
+                    flex-direction: row;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                }
+                .icon-container {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    position: relative;
+                }
+                .camera-icon {
+                    font-size: 1.3rem;
+                    filter: drop-shadow(0 2px 4px rgba(0,0,0,0.02));
+                }
+                .plus-badge {
+                    position: absolute;
+                    bottom: -3px;
+                    right: -5px;
+                    background: #4f46e5;
+                    color: white;
+                    border-radius: 50%;
+                    width: 13px;
+                    height: 13px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 0.55rem;
+                    font-weight: 800;
+                    border: 1.5px solid white;
+                }
+                .box-text {
+                    font-size: 0.8rem;
+                    font-weight: 600;
+                    color: #64748b;
+                    margin: 0;
+                    white-space: nowrap;
+                }
+                
+                /* Choice Buttons styling */
+                .choice-btn {
+                    flex: 1;
+                    height: 32px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 4px;
+                    background: white;
+                    border: 1px solid #cbd5e1;
+                    border-radius: 6px;
+                    font-size: 0.72rem;
+                    font-weight: 600;
+                    color: #334155;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+                }
+                .choice-btn:hover {
+                    background: #f8fafc;
+                    border-color: #4f46e5;
+                    color: #4f46e5;
+                }
+                .choice-btn:active {
+                    transform: scale(0.95);
+                }
+                .close-btn {
+                    width: 24px;
+                    height: 24px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    font-size: 0.7rem;
+                    font-weight: bold;
+                    color: #94a3b8;
+                    cursor: pointer;
+                    border-radius: 50%;
+                    transition: all 0.2s ease;
+                }
+                .close-btn:hover {
+                    background: #f1f5f9;
+                    color: #ef4444;
+                }
+                
+                /* Preview mode */
+                .preview-container {
+                    position: absolute;
+                    top: 0;
+                    left: 0;
+                    width: 100%;
+                    height: 100%;
+                    border-radius: 8px;
+                    overflow: hidden;
+                    display: none;
+                }
+                .preview-img {
+                    width: 100%;
+                    height: 100%;
+                    object-fit: cover;
+                }
+                .clear-btn {
+                    position: absolute;
+                    top: 4px;
+                    right: 4px;
+                    background: rgba(15, 23, 42, 0.6);
+                    color: white;
+                    border: none;
+                    border-radius: 50%;
+                    width: 18px;
+                    height: 18px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    cursor: pointer;
+                    font-size: 0.65rem;
+                    font-weight: bold;
+                    backdrop-filter: blur(2px);
+                    transition: all 0.2s ease;
+                    z-index: 10;
+                }
+                .clear-btn:hover {
+                    background: rgba(239, 68, 68, 0.9);
+                    transform: scale(1.05);
+                }
+            </style>
+            </head>
+            <body>
+            <div class="dotted-box" id="box">
+                <!-- Default State -->
+                <div id="normal-state" class="state-container" onclick="showMenu(event)">
+                    <div class="icon-container">
+                        <span class="camera-icon">📸</span>
+                        <span class="plus-badge">+</span>
+                    </div>
+                    <span class="box-text">Add Photo</span>
+                </div>
+                
+                <!-- Choice State -->
+                <div id="choice-state" class="state-container" style="display: none;">
+                    <div class="choice-btn" onclick="triggerInput('camera-el', event)">
+                        📷 Camera
+                    </div>
+                    <div class="choice-btn" onclick="triggerInput('file-el', event)">
+                        📁 Gallery
+                    </div>
+                    <div class="close-btn" onclick="hideMenu(event)">✕</div>
+                </div>
+                
+                <!-- Preview State -->
+                <div class="preview-container" id="preview-box">
+                    <button type="button" class="clear-btn" onclick="clearImage(event)">✕</button>
+                    <img class="preview-img" id="preview-el" src="" alt="Preview">
+                </div>
+            </div>
+            
+            <!-- Hidden Native Inputs -->
+            <!-- camera-el has capture="environment" -> forces mobile camera app direct launch -->
+            <input type="file" id="camera-el" accept="image/*" capture="environment" style="display: none;" onchange="handleFile(this)">
+            <!-- file-el -> opens mobile gallery / file selection -->
+            <input type="file" id="file-el" accept="image/*" style="display: none;" onchange="handleFile(this)">
+            
+            <script>
+                function showMenu(event) {
+                    event.stopPropagation();
+                    document.getElementById('normal-state').style.display = 'none';
+                    document.getElementById('choice-state').style.display = 'flex';
+                }
+                
+                function hideMenu(event) {
+                    if (event) event.stopPropagation();
+                    document.getElementById('choice-state').style.display = 'none';
+                    document.getElementById('normal-state').style.display = 'flex';
+                }
+                
+                function triggerInput(id, event) {
+                    if (event) event.stopPropagation();
+                    document.getElementById(id).click();
+                    hideMenu();
+                }
+                
+                function handleFile(input) {
+                    if (input.files && input.files[0]) {
+                        const file = input.files[0];
+                        const reader = new FileReader();
+                        
+                        reader.onload = function(e) {
+                            const base64Data = e.target.result;
+                            
+                            // Display preview
+                            document.getElementById('preview-el').src = base64Data;
+                            document.getElementById('preview-box').style.display = 'block';
+                            
+                            // Send to parent window
+                            window.parent.postMessage({
+                                type: 'image_input',
+                                base64: base64Data,
+                                filename: file.name
+                            }, '*');
+                        };
+                        
+                        reader.readAsDataURL(file);
+                    }
+                }
+                
+                function clearImage(event) {
+                    event.stopPropagation(); // Prevents triggering click events
+                    
+                    // Reset inputs
+                    document.getElementById('camera-el').value = '';
+                    document.getElementById('file-el').value = '';
+                    document.getElementById('preview-el').src = '';
+                    document.getElementById('preview-box').style.display = 'none';
+                    
+                    // Send clear event to parent window
+                    window.parent.postMessage({
+                        type: 'image_input',
+                        base64: '',
+                        filename: ''
+                    }, '*');
+                    
+                    // Ensure we are back in normal state
+                    hideMenu();
+                }
+            </script>
+            </body>
+            </html>
+            """, height=44)
+            
+        # Hidden inputs to hold the base64 and filename values (populated by JS bridge)
+        st.markdown('<div class="hidden-input-container">', unsafe_allow_html=True)
+        image_base64 = st.text_area("Image Base64", value="", key="hidden_image_base64", label_visibility="collapsed")
+        image_filename = st.text_input("Image Filename", value="", key="hidden_image_filename", label_visibility="collapsed")
+        st.markdown('</div>', unsafe_allow_html=True)
         
         # We auto-generate the Date and Time in the background
         st.markdown('<div class="primary-btn-container" style="margin-top: 20px;">', unsafe_allow_html=True)
@@ -1362,17 +1882,58 @@ else:
             else:
                 # Automate the current date & timestamp creation
                 current_time = datetime.datetime.now()
+                
+                # Process custom image picker base64 if any
+                saved_image_path = ""
+                if image_base64 and image_base64.strip() != "":
+                    # Ensure uploads directory exists
+                    os.makedirs("uploads", exist_ok=True)
+                    
+                    try:
+                        # Extract the base64 content
+                        header, base64_str = image_base64.split(";base64,")
+                        file_data = base64.b64decode(base64_str)
+                        
+                        # Determine file extension
+                        file_ext = ".jpg"
+                        if "png" in header:
+                            file_ext = ".png"
+                        elif "jpeg" in header:
+                            file_ext = ".jpg"
+                        elif "gif" in header:
+                            file_ext = ".gif"
+                            
+                        # Use the original filename as a hint if available
+                        orig_filename = image_filename if image_filename else "photo.jpg"
+                        clean_exp_name = "".join(c for c in expenditure if c.isalnum() or c in (" ", "_", "-")).strip().replace(" ", "_")
+                        if not clean_exp_name:
+                            clean_exp_name = "receipt"
+                            
+                        filename = f"{current_time.strftime('%Y%m%d_%H%M%S')}_{clean_exp_name}{file_ext}"
+                        saved_image_path = os.path.join("uploads", filename)
+                        
+                        # Save file
+                        with open(saved_image_path, "wb") as f:
+                            f.write(file_data)
+                    except Exception as e:
+                        st.error(f"Error processing captured photo: {e}")
+                
                 new_entry = pd.DataFrame([{
                     "Timestamp": current_time,
                     "Date": current_time.date(),
                     "Amount": amount,
-                    "Expenditure": expenditure.strip()
+                    "Expenditure": expenditure.strip(),
+                    "Receipt_Image": saved_image_path
                 }])
                 
                 df_expenses = pd.concat([df_expenses, new_entry], ignore_index=True)
                 if save_expenses(df_expenses):
-                    st.success(f"Recorded successfully: ₹{amount:,.2f} spent on '{expenditure}'")
-                    # Double-check data sync
+                    # Save details in session state for WhatsApp sharing
+                    st.session_state.last_recorded_expense = {
+                        "expenditure": expenditure.strip(),
+                        "amount": amount,
+                        "timestamp": current_time
+                    }
                     st.rerun()
     st.caption("🔒 Analytics and history records are restricted to Admins. Click the 'Admin' button above to log in.")
 
@@ -1412,6 +1973,12 @@ components.html("""
             else if (text.includes('Admin')) {
                 if (!btn.classList.contains('admin-btn-custom')) {
                     btn.classList.add('admin-btn-custom');
+                }
+            }
+            // Check for WhatsApp button
+            else if (text.includes('WhatsApp')) {
+                if (!btn.classList.contains('whatsapp-btn-custom')) {
+                    btn.classList.add('whatsapp-btn-custom');
                 }
             }
             // Check for Download button
@@ -1468,9 +2035,11 @@ components.html("""
         inputElement.dispatchEvent(new Event('change', { bubbles: true }));
     };
 
-    // Listen for messages from the voice component iframe on the PARENT window
+    // Listen for messages from the voice component or custom image-picker on the PARENT window
     window.parent.addEventListener('message', (event) => {
-        if (event.data && event.data.type === 'voice_input') {
+        if (!event.data) return;
+        
+        if (event.data.type === 'voice_input') {
             const data = event.data;
             const doc = window.parent.document;
             if (!doc) return;
@@ -1506,6 +2075,25 @@ components.html("""
             
             if (amtInput && data.amount !== null) {
                 setReactInputValue(amtInput, data.amount);
+            }
+        }
+        else if (event.data.type === 'image_input') {
+            const data = event.data;
+            const doc = window.parent.document;
+            if (!doc) return;
+            
+            // Find hidden base64 textarea and filename text input inside our container
+            const hiddenContainer = doc.querySelector('.hidden-input-container');
+            if (hiddenContainer) {
+                const base64Area = hiddenContainer.querySelector('textarea');
+                const filenameInput = hiddenContainer.querySelector('input');
+                
+                if (base64Area) {
+                    setReactInputValue(base64Area, data.base64);
+                }
+                if (filenameInput) {
+                    setReactInputValue(filenameInput, data.filename);
+                }
             }
         }
     });
