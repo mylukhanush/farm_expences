@@ -7,6 +7,16 @@ import base64
 import urllib.parse
 import plotly.express as px
 import streamlit.components.v1 as components
+import shutil
+
+# Copy generated circular farm graphic to workspace if not present
+src_img = r"C:\Users\KhanushM\.gemini\antigravity\brain\e8db8cce-3075-4503-a0a9-ecd600b118a1\bunny_farm_login_graphic_1782467935691.png"
+dst_img = "bunny_farm_login_graphic.png"
+if os.path.exists(src_img) and not os.path.exists(dst_img):
+    try:
+        shutil.copy(src_img, dst_img)
+    except Exception:
+        pass
 
 
 # ----------------------------------------------------
@@ -16,22 +26,18 @@ st.set_page_config(
     page_title="Bunny's Farm - Expense Tracker",
     page_icon="🌱",
     layout="centered",
-    initial_sidebar_state="collapsed"
+    initial_sidebar_state="auto"
 )
 
 # Settings Persistence Helpers
 SETTINGS_FILE = "settings.json"
 
 def load_settings():
-    default_settings = {"whatsapp_phone": "", "whatsapp_apikey": "", "last_sent_date": ""}
+    default_settings = {}
     if os.path.exists(SETTINGS_FILE):
         try:
             with open(SETTINGS_FILE, "r") as f:
                 loaded = json.load(f)
-                # Ensure all default keys exist
-                for k, v in default_settings.items():
-                    if k not in loaded:
-                        loaded[k] = v
                 return loaded
         except Exception:
             return default_settings
@@ -52,6 +58,8 @@ if "show_admin_login" not in st.session_state:
     st.session_state.show_admin_login = False
 if "show_toast" not in st.session_state:
     st.session_state.show_toast = None
+if "show_invoice_preview" not in st.session_state:
+    st.session_state.show_invoice_preview = False
 
 # Show premium, auto-dismissing toast notification upon successful submission
 if st.session_state.show_toast:
@@ -60,881 +68,604 @@ if st.session_state.show_toast:
 
 # Load persistent settings
 app_settings = load_settings()
-if "whatsapp_phone" not in st.session_state:
-    st.session_state.whatsapp_phone = app_settings.get("whatsapp_phone", "")
-if "whatsapp_apikey" not in st.session_state:
-    st.session_state.whatsapp_apikey = app_settings.get("whatsapp_apikey", "")
-
-# ----------------------------------------------------
-# Background Automation Scheduler for WhatsApp Summaries
-# ----------------------------------------------------
-import threading
-import time
-import requests
-
-def send_automated_daily_summary():
-    """Background task that checks the time and sends the daily summary at 9:30 PM (21:30) local time."""
-    while True:
-        try:
-            # Sleep 60 seconds first to prevent CPU pinning
-            time.sleep(60)
-            
-            # Load active settings
-            settings = load_settings()
-            phone = settings.get("whatsapp_phone", "")
-            apikey = settings.get("whatsapp_apikey", "")
-            last_sent = settings.get("last_sent_date", "")
-            
-            if not phone or not apikey:
-                continue
-                
-            # Check current local time
-            now = datetime.datetime.now()
-            today_str = now.strftime("%Y-%m-%d")
-            
-            # Check if already sent today
-            if last_sent == today_str:
-                continue
-                
-            # Trigger at 9:30 PM (21:30)
-            if now.hour == 21 and now.minute >= 30:
-                if os.path.exists("expenses.xlsx"):
-                    try:
-                        df = pd.read_excel("expenses.xlsx", sheet_name="Expenses_Log")
-                        df['Date'] = pd.to_datetime(df['Date']).dt.date
-                        df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce')
-                        df['Timestamp'] = pd.to_datetime(df['Timestamp'])
-                        
-                        today_date = now.date()
-                        df_today = df[df['Date'] == today_date]
-                        
-                        if not df_today.empty:
-                            total_spent = df_today['Amount'].sum()
-                            entries_count = len(df_today)
-                            
-                            message_lines = [
-                                "🌱 *Bunny's Farm Daily Expense Summary*",
-                                f"📅 *Date:* {today_date.strftime('%d-%b-%Y')}",
-                                "-----------------------------",
-                                f"Total Spent Today: *₹{total_spent:,.2f}*",
-                                f"Total Transactions: *{entries_count} entries*",
-                                "",
-                                "*Breakdown:*"
-                            ]
-                            
-                            for idx, row in df_today.sort_values(by="Timestamp", ascending=True).iterrows():
-                                time_str = row['Timestamp'].strftime('%I:%M %p') if isinstance(row['Timestamp'], datetime.datetime) else ""
-                                message_lines.append(f"• {row['Expenditure']}: *₹{row['Amount']:,.2f}* ({time_str})")
-                                
-                            message_lines.append("-----------------------------")
-                            message_lines.append("_Generated by FinTrack Expense Tracker._")
-                            
-                            summary_text = "\n".join(message_lines)
-                            
-                            # Dispatch to CallMeBot API
-                            url = "https://api.callmebot.com/whatsapp.php"
-                            params = {
-                                "phone": phone,
-                                "text": summary_text,
-                                "apikey": apikey
-                            }
-                            res = requests.get(url, params=params, timeout=15)
-                            if res.status_code == 200:
-                                settings["last_sent_date"] = today_str
-                                save_settings(settings)
-                    except Exception as e:
-                        print(f"Error compiling automated summary: {e}")
-        except Exception as e:
-            print(f"Error in background thread loop: {e}")
-
-# Start thread safely ensuring it runs only once per server lifetime
-if "bg_thread_started" not in st.session_state:
-    st.session_state.bg_thread_started = True
-    thread_exists = False
-    for t in threading.enumerate():
-        if t.name == "BunnyFarmAutomation":
-            thread_exists = True
-            break
-    if not thread_exists:
-        bg_thread = threading.Thread(target=send_automated_daily_summary, name="BunnyFarmAutomation", daemon=True)
-        bg_thread.start()
 
 # ----------------------------------------------------
 # Custom Premium Styling
 # ----------------------------------------------------
-custom_css = """
-<style>
-    @import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&display=swap');
-    
-    html, body, [class*="css"] {
-        font-family: 'Outfit', sans-serif;
-    }
-    
-    /* Global Background and Scrollbar */
-    .main {
-        background-color: #f8fafc !important;
-    }
-    
-    /* Align Streamlit Columns Vertically */
-    div[data-testid="column"] {
-        display: flex !important;
-        align-items: center !important;
-    }
-    div[data-testid="column"] button {
-        margin-top: 0 !important;
-        margin-bottom: 0 !important;
-    }
-    div[data-testid="column"] div[data-testid="element-container"] {
-        margin: 0 !important;
-        display: flex !important;
-        align-items: center !important;
-    }
-    div[data-testid="column"]:first-child {
-        justify-content: flex-start !important;
-    }
-    div[data-testid="column"]:last-child {
-        justify-content: flex-end !important;
-    }
-
-    /* Force brand header columns to stay side-by-side and wrap tightly (beside each other) */
-    div[data-testid="stHorizontalBlock"]:has(.brand-container) {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: nowrap !important;
-        align-items: center !important;
-        justify-content: flex-start !important;
-        gap: 18px !important;
-        width: 100% !important;
-        margin-bottom: 15px !important;
-    }
-    div[data-testid="stHorizontalBlock"]:has(.brand-container) > div[data-testid="column"] {
-        width: auto !important;
-        max-width: none !important;
-        flex: 0 0 auto !important;
-    }
-
-    /* Brand Header Logo */
-    .brand-container {
-        display: flex;
-        align-items: center;
-        gap: 10px;
-        padding: 5px 0;
-    }
-    .brand-icon {
-        font-size: 2rem;
-    }
-    .brand-name {
-        font-size: 2rem;
-        font-weight: 800;
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
-        letter-spacing: -0.03em;
-    }
-
-    /* Form Container & Headers */
-    .form-container {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 20px;
-        padding: 30px;
-        margin-bottom: 25px;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.02), 0 8px 10px -6px rgba(0, 0, 0, 0.02);
-    }
-    .form-header {
-        margin-bottom: 24px;
-    }
-    .form-title {
-        font-size: 1.4rem !important;
-        font-weight: 700 !important;
-        color: #0f172a !important;
-        margin: 0 0 6px 0 !important;
-        letter-spacing: -0.01em;
-    }
-    .form-subtitle {
-        color: #64748b !important;
-        font-size: 0.88rem !important;
-        margin: 0 !important;
-        line-height: 1.4;
-    }
-
-    /* Premium Form Styling as White Box */
-    div[data-testid="stForm"] {
-        background: #ffffff !important;
-        border: 1px solid #e2e8f0 !important;
-        border-radius: 20px !important;
-        padding: 30px !important;
-        margin-bottom: 25px !important;
-        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.02), 0 8px 10px -6px rgba(0, 0, 0, 0.02) !important;
-    }
-
-    /* Premium Input Styling */
-    div[data-testid="stTextInput"] input, 
-    div[data-testid="stNumberInput"] input,
-    div[data-testid="stSelectbox"] div[role="button"] {
-        background-color: #f8fafc !important;
-        border: 1px solid #e2e8f0 !important;
-        border-radius: 12px !important;
-        color: #0f172a !important;
-        font-family: 'Outfit', sans-serif !important;
-        padding: 10px 14px !important;
-        font-size: 0.95rem !important;
-        transition: all 0.2s ease-in-out !important;
-    }
-    div[data-testid="stTextInput"] input:focus, 
-    div[data-testid="stNumberInput"] input:focus {
-        border-color: #4f46e5 !important;
-        box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.1) !important;
-        background-color: #ffffff !important;
-    }
-
-    /* Admin Panel Header & Badge */
-    .admin-header {
-        margin-bottom: 30px;
-        padding: 15px 0 5px 0;
-    }
-    .admin-badge {
-        display: inline-block;
-        padding: 4px 12px;
-        background: rgba(79, 70, 229, 0.08);
-        color: #4f46e5;
-        font-size: 0.72rem;
-        font-weight: 700;
-        border-radius: 50px;
-        letter-spacing: 0.06em;
-        margin-bottom: 12px;
-        text-transform: uppercase;
-        border: 1px solid rgba(79, 70, 229, 0.15);
-    }
-    .admin-title {
-        font-size: 2rem !important;
-        font-weight: 800 !important;
-        color: #0f172a !important;
-        margin: 0 0 6px 0 !important;
-        letter-spacing: -0.02em;
-    }
-    .admin-subtitle {
-        color: #64748b !important;
-        font-size: 0.95rem !important;
-        margin: 0 !important;
-        line-height: 1.5;
-    }
-
-    /* Metric Cards Grid */
-    .metric-grid {
-        display: grid;
-        grid-template-columns: repeat(2, 1fr);
-        gap: 20px;
-        margin-bottom: 30px;
-    }
-    @media (max-width: 768px) {
-        .metric-grid {
-            grid-template-columns: 1fr;
-            gap: 15px;
-        }
-    }
-    .metric-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 20px;
-        padding: 24px;
-        display: flex;
-        align-items: center;
-        gap: 18px;
-        box-shadow: 0 4px 15px rgba(0, 0, 0, 0.02);
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    }
-    .metric-card:hover {
-        transform: translateY(-3px);
-        box-shadow: 0 12px 25px rgba(0, 0, 0, 0.05);
-        border-color: #cbd5e1;
-    }
-    .metric-card.accent {
-        border-left: 4px solid #4f46e5;
-    }
-    .metric-icon-container {
-        width: 50px;
-        height: 50px;
-        border-radius: 14px;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 1.4rem;
-        font-weight: 700;
-        flex-shrink: 0;
-    }
-    .metric-content {
-        display: flex;
-        flex-direction: column;
-        text-align: left;
-    }
-    .metric-label {
-        color: #64748b;
-        font-size: 0.78rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.06em;
-        margin-bottom: 4px;
-    }
-    .metric-val {
-        color: #0f172a;
-        font-size: 1.75rem;
-        font-weight: 800;
-        line-height: 1.1;
-        margin-bottom: 4px;
-        letter-spacing: -0.02em;
-    }
-    .metric-desc {
-        color: #94a3b8;
-        font-size: 0.78rem;
-    }
-
-    /* Custom Section Headers */
-    .section-header {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        margin-top: 15px;
-        margin-bottom: 24px;
-    }
-    .section-title {
-        font-size: 1.3rem !important;
-        font-weight: 700 !important;
-        color: #0f172a !important;
-        margin: 0 0 4px 0 !important;
-        letter-spacing: -0.01em;
-    }
-    .section-subtitle {
-        color: #64748b !important;
-        font-size: 0.85rem !important;
-        margin: 0 !important;
-    }
-
-    /* Segmented Control Style Tabs */
-    div[data-baseweb="tab-list"] {
-        background-color: #f1f5f9 !important;
-        padding: 6px !important;
-        border-radius: 14px !important;
-        gap: 8px !important;
-        border-bottom: none !important;
-        margin-bottom: 25px !important;
-    }
-    div[data-baseweb="tab-list"] button {
-        background-color: transparent !important;
-        border: none !important;
-        color: #64748b !important;
-        font-weight: 600 !important;
-        font-size: 0.9rem !important;
-        padding: 10px 20px !important;
-        border-radius: 10px !important;
-        transition: all 0.25s ease !important;
-    }
-    div[data-baseweb="tab-list"] button[aria-selected="true"] {
-        background-color: #ffffff !important;
-        color: #4f46e5 !important;
-        box-shadow: 0 4px 10px rgba(0, 0, 0, 0.04) !important;
-    }
-    div[data-baseweb="tab-list"] button:hover:not([aria-selected="true"]) {
-        color: #0f172a !important;
-        background-color: rgba(255, 255, 255, 0.5) !important;
-    }
-
-    /* Standard Button Styling (Secondary) */
-    div[data-testid="stBaseButton-secondary"] button {
-        background-color: #ffffff !important;
-        color: #4f46e5 !important;
-        border: 1px solid #e2e8f0 !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 10px 20px !important;
-        font-size: 0.92rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 8px !important;
-    }
-    div[data-testid="stBaseButton-secondary"] button:hover {
-        border-color: #4f46e5 !important;
-        background-color: #f5f3ff !important;
-        color: #4f46e5 !important;
-        transform: translateY(-1px) !important;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.08) !important;
-    }
-
-    /* Primary Button Container & Button (Form Submit) */
-    .primary-btn-container button {
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 12px 24px !important;
-        font-size: 0.95rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 15px rgba(79, 70, 229, 0.2) !important;
-    }
-    .primary-btn-container button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 25px rgba(79, 70, 229, 0.3) !important;
-    }
-
-    /* Danger Button (Delete Records) */
-    button.danger-btn-custom, .danger-btn-container button {
-        background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 12px 24px !important;
-        font-size: 0.95rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 12px rgba(239, 68, 68, 0.2) !important;
-    }
-    button.danger-btn-custom:hover, .danger-btn-container button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(239, 68, 68, 0.3) !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* Download Button */
-    button.download-btn-custom, .download-btn-container button {
-        background: linear-gradient(135deg, #0d9488 0%, #10b981 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 12px 24px !important;
-        font-size: 0.95rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 15px rgba(16, 185, 129, 0.2) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 8px !important;
-    }
-    button.download-btn-custom:hover, .download-btn-container button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 25px rgba(16, 185, 129, 0.3) !important;
-        color: #ffffff !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* Admin Button */
-    button.admin-btn-custom, .admin-btn-container button {
-        background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 10px 20px !important;
-        font-size: 0.92rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 8px !important;
-    }
-    button.admin-btn-custom:hover, .admin-btn-container button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(79, 70, 229, 0.3) !important;
-        color: #ffffff !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* Logout Button */
-    button.logout-btn-custom, .logout-btn-container button {
-        background: linear-gradient(135deg, #e11d48 0%, #f43f5e 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 10px 20px !important;
-        font-size: 0.92rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 12px rgba(225, 29, 72, 0.2) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 8px !important;
-    }
-    button.logout-btn-custom:hover, .logout-btn-container button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(225, 29, 72, 0.3) !important;
-        color: #ffffff !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* Expenses Button (Go Back) */
-    button.expenses-btn-custom, .expenses-btn-container button {
-        background: linear-gradient(135deg, #10b981 0%, #059669 100%) !important; /* Premium Emerald/Mint Green */
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 10px 20px !important;
-        font-size: 0.92rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 12px rgba(16, 185, 129, 0.2) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 8px !important;
-    }
-    button.expenses-btn-custom:hover, .expenses-btn-container button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(16, 185, 129, 0.3) !important;
-        color: #ffffff !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* WhatsApp Button */
-    button.whatsapp-btn-custom, .whatsapp-btn-container button {
-        background: linear-gradient(135deg, #25D366 0%, #128C7E 100%) !important; /* Official WhatsApp Green */
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 10px 20px !important;
-        font-size: 0.92rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 12px rgba(37, 211, 102, 0.2) !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: center !important;
-        gap: 8px !important;
-    }
-    button.whatsapp-btn-custom:hover, .whatsapp-btn-container button:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(37, 211, 102, 0.3) !important;
-        color: #ffffff !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* Verify & Access Button */
-    button.verify-btn-custom {
-        background: linear-gradient(135deg, #4f46e5 0%, #6366f1 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 12px 24px !important;
-        font-size: 0.95rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2) !important;
-    }
-    button.verify-btn-custom:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(79, 70, 229, 0.3) !important;
-        color: #ffffff !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* Submit Transaction Button */
-    button.submit-btn-custom {
-        background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%) !important;
-        color: #ffffff !important;
-        border: none !important;
-        border-radius: 12px !important;
-        font-weight: 600 !important;
-        padding: 12px 24px !important;
-        font-size: 0.95rem !important;
-        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
-        box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2) !important;
-    }
-    button.submit-btn-custom:hover {
-        transform: translateY(-2px) !important;
-        box-shadow: 0 8px 20px rgba(79, 70, 229, 0.3) !important;
-        color: #ffffff !important;
-        filter: brightness(1.05) !important;
-    }
-
-    /* Footer Styling */
-    .footer-text {
-        text-align: center;
-        color: #94a3b8;
-        font-size: 0.85rem;
-        margin-top: 50px;
-        padding-top: 25px;
-        border-top: 1px solid #e2e8f0;
-        letter-spacing: 0.02em;
-    }
-
-    /* Custom Input Labels */
-    .custom-input-label {
-        font-size: 0.88rem !important;
-        font-weight: 600 !important;
-        color: #475569 !important;
-        margin-bottom: 8px !important;
-        display: block !important;
-        letter-spacing: -0.01em;
-    }
-    
-    /* Status Indicator */
-    .status-indicator {
-        display: inline-block;
-        width: 8px;
-        height: 8px;
-        background-color: #10b981;
-        border-radius: 50px;
-        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.2);
-        animation: pulse 2s infinite;
-    }
-    @keyframes pulse {
-        0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.4); }
-        70% { transform: scale(1); box-shadow: 0 0 0 6px rgba(16, 185, 129, 0); }
-        100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
-    }
-
-    /* Empty State Card */
-    .empty-state {
-        text-align: center;
-        padding: 45px 20px;
-        background: #ffffff;
-        border: 2px dashed #e2e8f0;
-        border-radius: 16px;
-        margin: 10px 0 20px 0;
-    }
-    .empty-state-icon {
-        font-size: 2.5rem;
-        margin-bottom: 12px;
-    }
-    .empty-state-title {
-        font-size: 1.1rem !important;
-        font-weight: 700 !important;
-        color: #0f172a !important;
-        margin: 0 0 6px 0 !important;
-        letter-spacing: -0.01em;
-    }
-    .empty-state-desc {
-        color: #64748b !important;
-        font-size: 0.85rem !important;
-        margin: 0 !important;
-        line-height: 1.4;
-    }
-
-    /* ----------------------------------------------------
-       Mobile View - Slide Fit Optimization (No Scrolling)
-       ---------------------------------------------------- */
-    @media (max-width: 768px) {
-        /* Lock outer page to prevent double scrollbars and achieve app-slide feel */
-        html, body, [data-testid="stAppViewContainer"], .main {
-            overflow: hidden !important;
-            height: 100vh !important;
-            max-height: 100vh !important;
-        }
-
-        /* Allow smooth scrolling ONLY within the main block container if keyboard opens */
-        div[data-testid="stAppViewBlockContainer"], .block-container {
-            padding-top: 1rem !important;
-            padding-bottom: 1rem !important;
-            padding-left: 0.8rem !important;
-            padding-right: 0.8rem !important;
-            height: 100vh !important;
-            overflow-y: auto !important;
-            display: flex !important;
-            flex-direction: column !important;
-            justify-content: flex-start !important;
-        }
-
-        /* Force brand header columns to stay side-by-side (no wrapping) */
-        div[data-testid="stHorizontalBlock"]:has(.brand-container) {
-            display: flex !important;
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            align-items: center !important;
-            justify-content: flex-start !important;
-            gap: 12px !important;
-            margin-bottom: 12px !important;
-            width: 100% !important;
-        }
-        div[data-testid="stHorizontalBlock"]:has(.brand-container) > div[data-testid="column"] {
-            width: auto !important;
-            max-width: none !important;
-            flex: 0 0 auto !important;
-        }
-
-        /* Allow other horizontal blocks to wrap normally so they don't overflow on small screens */
-        div[data-testid="stHorizontalBlock"]:not(:has(.brand-container)) {
-            flex-wrap: wrap !important;
-        }
-
-        /* Make brand header extremely compact */
-        .brand-container {
-            padding: 0 !important;
-            gap: 6px !important;
-        }
-        .brand-icon {
-            font-size: 1.3rem !important;
-        }
-        .brand-name {
-            font-size: 1.3rem !important;
-        }
-
-        /* Small header buttons (Admin/Logout) */
-        .admin-btn-container button, .logout-btn-container button,
-        div[data-testid="column"] button {
-            padding: 6px 12px !important;
-            font-size: 0.78rem !important;
-            height: auto !important;
-            min-height: unset !important;
-            border-radius: 8px !important;
-        }
-
-        /* Compact form containers */
-        div[data-testid="stForm"], .form-container {
-            padding: 15px !important;
-            margin-bottom: 10px !important;
-            border-radius: 14px !important;
-            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.01) !important;
-        }
-        
-        .form-header {
-            margin-bottom: 10px !important;
-        }
-        .form-title {
-            font-size: 1.05rem !important;
-        }
-        .form-subtitle {
-            font-size: 0.75rem !important;
-        }
-
-        /* Compact input labels & fields */
-        .custom-input-label {
-            font-size: 0.75rem !important;
-            margin-bottom: 4px !important;
-        }
-        div[data-testid="stTextInput"] input, 
-        div[data-testid="stNumberInput"] input,
-        div[data-testid="stSelectbox"] div[role="button"] {
-            padding: 8px 10px !important;
-            font-size: 0.85rem !important;
-            border-radius: 10px !important;
-        }
-
-        /* Tighten vertical spacing of Streamlit elements */
-        div[data-testid="element-container"] {
-            margin-bottom: 0.35rem !important;
-        }
-
-        /* Compact action buttons */
-        .primary-btn-container button,
-        button.submit-btn-custom,
-        button.verify-btn-custom {
-            padding: 10px 16px !important;
-            font-size: 0.88rem !important;
-            border-radius: 10px !important;
-        }
-
-        /* Hide footer on mobile to maximize viewport space */
-        .footer-text {
-            display: none !important;
-        }
-
-        /* ------------------ Admin Dashboard Mobile Optimizations ------------------ */
-        .admin-header {
-            margin-bottom: 10px !important;
-            padding: 2px 0 !important;
-        }
-        .admin-badge {
-            font-size: 0.6rem !important;
-            padding: 2px 6px !important;
-            margin-bottom: 2px !important;
-        }
-        .admin-title {
-            font-size: 1.3rem !important;
-        }
-        .admin-subtitle {
-            font-size: 0.78rem !important;
-        }
-
-        /* Force metric cards side-by-side to save vertical space */
-        .metric-grid {
-            grid-template-columns: repeat(2, 1fr) !important;
-            gap: 8px !important;
-            margin-bottom: 10px !important;
-        }
-        .metric-card {
-            padding: 10px 10px !important;
-            border-radius: 10px !important;
-            gap: 6px !important;
-        }
-        .metric-icon-container {
-            width: 30px !important;
-            height: 30px !important;
-            font-size: 0.9rem !important;
-            border-radius: 6px !important;
-        }
-        .metric-val {
-            font-size: 1rem !important;
-        }
-        .metric-label {
-            font-size: 0.62rem !important;
-        }
-        .metric-desc {
-            display: none !important; /* Hide descriptions on mobile to stay neat */
-        }
-
-        /* Compact Segmented Control Tabs */
-        div[data-baseweb="tab-list"] {
-            padding: 4px !important;
-            border-radius: 8px !important;
-            gap: 2px !important;
-            margin-bottom: 10px !important;
-        }
-        div[data-baseweb="tab-list"] button {
-            padding: 6px 8px !important;
-            font-size: 0.75rem !important;
-            border-radius: 6px !important;
-            flex-grow: 1 !important;
-        }
-
-        /* Hide unnecessary empty state decorations */
-        .empty-state {
-            padding: 20px 10px !important;
-            border-radius: 10px !important;
-        }
-        .empty-state-icon {
-            font-size: 1.8rem !important;
-            margin-bottom: 6px !important;
-        }
-    }
-    
-    /* Hide the specific text area and text input using their parent containers to remove white space */
-    div[data-testid="element-container"]:has(#hidden_image_base64),
-    div[data-testid="element-container"]:has(#hidden_image_filename),
-    div[data-testid="element-container"]:has(textarea[aria-label="Image Base64"]),
-    div[data-testid="element-container"]:has(input[aria-label="Image Filename"]),
-    .hidden-input-container {
-        display: none !important;
-        height: 0px !important;
-        margin: 0 !important;
-        padding: 0 !important;
-        overflow: hidden !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-    }
-</style>
-"""
-st.markdown(custom_css, unsafe_allow_html=True)
+# Load custom styling from style.css (resolved relative to script directory)
+style_css_path = os.path.join(os.path.dirname(__file__), "style.css")
+if os.path.exists(style_css_path):
+    with open(style_css_path, "r", encoding="utf-8") as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+else:
+    st.warning("style.css not found. Please ensure it is present in the application directory.")
 
 # ----------------------------------------------------
 # Data Storage Functions (Excel backend)
 # ----------------------------------------------------
 EXCEL_FILE = "expenses.xlsx"
 
+def num_to_words(number):
+    """Converts a float amount to words using the Indian numbering system (Lakhs, Crores)."""
+    if number == 0:
+        return "Zero Rupees Only"
+        
+    units = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", 
+             "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"]
+    tens = ["", "", "Twenty", "Thirty", "Forty", "Fifty", "Sixty", "Seventy", "Eighty", "Ninety"]
+    
+    def helper(n):
+        if n < 20:
+            return units[n]
+        elif n < 100:
+            return tens[n // 10] + (" " + units[n % 10] if n % 10 != 0 else "")
+        elif n < 1000:
+            return units[n // 100] + " Hundred" + (" and " + helper(n % 100) if n % 100 != 0 else "")
+        return ""
+        
+    num_int = int(number)
+    num_dec = int(round((number - num_int) * 100))
+    
+    words = ""
+    
+    # Crores (1,00,00,000)
+    if num_int >= 10000000:
+        words += helper(num_int // 10000000) + " Crore "
+        num_int %= 10000000
+        
+    # Lakhs (1,00,000)
+    if num_int >= 100000:
+        words += helper(num_int // 100000) + " Lakh "
+        num_int %= 100000
+        
+    # Thousands (1,000)
+    if num_int >= 1000:
+        words += helper(num_int // 1000) + " Thousand "
+        num_int %= 1000
+        
+    # Hundreds & below
+    if num_int > 0:
+        words += helper(num_int)
+        
+    words = words.strip() + " Rupees"
+    
+    if num_dec > 0:
+        words += " and " + helper(num_dec) + " Paise"
+        
+    return words + " Only"
+
+def generate_invoice_html(df, date_label, invoice_no, po_no, bank_info):
+    """Generates a pixel-perfect, print-ready HTML/CSS billing invoice matching the user's reference mockup."""
+    # Calculate totals
+    total = df['Amount'].sum()
+    total_words = num_to_words(total)
+    
+    # Generate rows
+    rows_html = ""
+    for idx, row in df.reset_index(drop=True).iterrows():
+        desc = row['Expenditure']
+        amount = row['Amount']
+        
+        # Format the date of the expense beautifully
+        date_str = ""
+        if 'Date' in row and not pd.isna(row['Date']):
+            if hasattr(row['Date'], 'strftime'):
+                date_str = row['Date'].strftime('%d-%b-%Y')
+            else:
+                date_str = str(row['Date'])
+                
+        rows_html += f"""
+        <tr>
+            <td style="text-align: center;">{idx + 1}</td>
+            <td style="text-align: center; color: #475569; font-size: 11px;">{date_str}</td>
+            <td>{desc}</td>
+            <td style="text-align: center;">1</td>
+            <td style="text-align: right;">₹{amount:,.2f}</td>
+            <td style="text-align: right; font-weight: 500;">₹{amount:,.2f}</td>
+        </tr>
+        """
+        
+    # Prefill empty rows if less than 4 to keep the structure beautiful
+    remaining_rows = 4 - len(df)
+    if remaining_rows > 0:
+        for i in range(remaining_rows):
+            rows_html += """
+            <tr style="height: 35px;">
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+                <td></td>
+            </tr>
+            """
+            
+    # Bank info
+    online_txn = bank_info.get("online_txn", "7842339268")
+    bank_name = bank_info.get("bank_name", "BANK OF BARODA")
+    acc_name = bank_info.get("acc_name", "MYLU KHANUSH")
+    acc_num = bank_info.get("acc_num", "55250100012962")
+    ifsc = bank_info.get("ifsc", "BARB0DARGAM")
+    branch = bank_info.get("branch", "Dargamitta, NELLORE")
+    
+    # Date formatting
+    invoice_date = datetime.date.today().strftime("%d %B %Y")
+    due_date = (datetime.date.today() + datetime.timedelta(days=15)).strftime("%d %B %Y")
+    
+    html_code = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <title>Invoice {invoice_no}</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Great+Vibes&family=Outfit:wght@400;600;800&display=swap" rel="stylesheet">
+        <style>
+            body {{
+                font-family: 'Inter', sans-serif;
+                color: #1e293b;
+                margin: 0;
+                padding: 0;
+                background-color: #f1f5f9;
+                -webkit-print-color-adjust: exact;
+            }}
+            .invoice-card {{
+                background: #ffffff;
+                max-width: 850px;
+                margin: 20px auto;
+                padding: 40px;
+                border-radius: 16px;
+                box-shadow: 0 10px 25px rgba(0,0,0,0.05);
+                box-sizing: border-box;
+                border: 1px solid #e2e8f0;
+            }}
+            .header {{
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                border-bottom: 2px solid #f1f5f9;
+                padding-bottom: 25px;
+                margin-bottom: 25px;
+            }}
+            .logo-area {{
+                display: flex;
+                align-items: center;
+                gap: 12px;
+            }}
+            .logo-icon {{
+                background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+                color: white;
+                width: 45px;
+                height: 45px;
+                border-radius: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-family: 'Outfit', sans-serif;
+                font-size: 24px;
+                font-weight: 800;
+            }}
+            .logo-text {{
+                font-family: 'Outfit', sans-serif;
+            }}
+            .logo-title {{
+                font-size: 20px;
+                font-weight: 800;
+                color: #0f172a;
+                margin: 0;
+                letter-spacing: 0.5px;
+            }}
+            .logo-subtitle {{
+                font-size: 11px;
+                color: #64748b;
+                margin: 2px 0 0 0;
+                font-weight: 500;
+            }}
+            .invoice-title-area {{
+                text-align: right;
+            }}
+            .invoice-title {{
+                font-family: 'Outfit', sans-serif;
+                font-size: 32px;
+                font-weight: 800;
+                color: #1e3a8a;
+                margin: 0;
+                letter-spacing: 1px;
+            }}
+            .invoice-num {{
+                font-size: 14px;
+                color: #475569;
+                font-weight: 600;
+                margin: 5px 0 0 0;
+            }}
+            .details-grid {{
+                display: grid;
+                grid-template-columns: 2fr 1fr;
+                gap: 20px;
+                margin-bottom: 30px;
+                font-size: 12px;
+                line-height: 1.6;
+            }}
+            .section-label {{
+                font-size: 11px;
+                font-weight: 700;
+                color: #2563eb;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                margin-bottom: 8px;
+            }}
+            .company-name {{
+                font-size: 13px;
+                font-weight: 700;
+                color: #0f172a;
+                margin-bottom: 4px;
+            }}
+            .address-text {{
+                color: #475569;
+            }}
+            .tax-info {{
+                margin-top: 6px;
+                font-weight: 500;
+                color: #334155;
+            }}
+            .invoice-meta {{
+                display: grid;
+                grid-template-columns: 1fr;
+                gap: 10px;
+                padding-left: 10px;
+                border-left: 2px solid #f1f5f9;
+            }}
+            .meta-item {{
+                margin-bottom: 2px;
+            }}
+            .meta-label {{
+                font-weight: 700;
+                color: #1e3a8a;
+                font-size: 11px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+            }}
+            .meta-val {{
+                color: #334155;
+                font-size: 13px;
+                font-weight: 500;
+                margin-top: 2px;
+            }}
+            .table-container {{
+                margin-bottom: 30px;
+            }}
+            table {{
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 12px;
+            }}
+            th {{
+                background-color: #1e3a8a;
+                color: white;
+                font-weight: 600;
+                text-transform: uppercase;
+                font-size: 11px;
+                letter-spacing: 0.5px;
+                padding: 10px 12px;
+                border: 1px solid #1e3a8a;
+            }}
+            th:first-child {{
+                border-top-left-radius: 6px;
+                border-bottom-left-radius: 6px;
+            }}
+            th:last-child {{
+                border-top-right-radius: 6px;
+                border-bottom-right-radius: 6px;
+            }}
+            td {{
+                padding: 10px 12px;
+                border-bottom: 1px solid #e2e8f0;
+                color: #334155;
+            }}
+            tr:nth-child(even) td {{
+                background-color: #f8fafc;
+            }}
+            .totals-container {{
+                display: flex;
+                justify-content: space-between;
+                align-items: flex-start;
+                margin-top: 20px;
+            }}
+            .totals-left {{
+                flex: 1.2;
+                margin-right: 40px;
+            }}
+            .totals-right {{
+                flex: 1;
+                font-size: 12px;
+            }}
+            .word-amount {{
+                background-color: #f8fafc;
+                border: 1px dashed #cbd5e1;
+                border-radius: 8px;
+                padding: 12px;
+                margin-bottom: 20px;
+            }}
+            .word-title {{
+                font-weight: 700;
+                color: #1e3a8a;
+                font-size: 10px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 4px;
+            }}
+            .word-val {{
+                font-weight: 500;
+                color: #475569;
+                line-height: 1.4;
+            }}
+            .bank-details {{
+                border-left: 3px solid #2563eb;
+                padding-left: 12px;
+            }}
+            .bank-title {{
+                font-weight: 700;
+                color: #1e3a8a;
+                font-size: 10px;
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                margin-bottom: 6px;
+            }}
+            .bank-row {{
+                margin-bottom: 3px;
+                color: #475569;
+            }}
+            .bank-label {{
+                font-weight: 600;
+                color: #334155;
+                display: inline-block;
+                width: 90px;
+            }}
+            .totals-table {{
+                width: 100%;
+                border: 1px solid #cbd5e1;
+                border-radius: 8px;
+                border-collapse: separate;
+                border-spacing: 0;
+                overflow: hidden;
+            }}
+            .totals-table td {{
+                border-bottom: 1px solid #cbd5e1;
+                padding: 10px 14px;
+            }}
+            .totals-table tr:last-child td {{
+                border-bottom: none;
+                background-color: #1e3a8a;
+                color: white;
+                font-weight: 700;
+                font-size: 14px;
+            }}
+            .sign-area {{
+                margin-top: 40px;
+                display: flex;
+                justify-content: flex-end;
+            }}
+            .sign-box {{
+                text-align: center;
+                width: 180px;
+            }}
+            .sign-label {{
+                font-size: 10px;
+                font-weight: 700;
+                color: #2563eb;
+                text-transform: uppercase;
+                letter-spacing: 0.8px;
+                margin-bottom: 5px;
+            }}
+            .signature {{
+                font-family: 'Great Vibes', cursive;
+                font-size: 28px;
+                color: #0f172a;
+                height: 40px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                border-bottom: 1px solid #cbd5e1;
+                margin-bottom: 5px;
+                user-select: none;
+            }}
+            .sign-name {{
+                font-size: 11px;
+                font-weight: 700;
+                color: #0f172a;
+            }}
+            .sign-role {{
+                font-size: 10px;
+                color: #64748b;
+                margin-top: 2px;
+            }}
+            .print-btn-container {{
+                max-width: 850px;
+                margin: 15px auto;
+                display: flex;
+                justify-content: flex-end;
+                gap: 12px;
+            }}
+            .btn {{
+                background: linear-gradient(135deg, #1e40af 0%, #3b82f6 100%);
+                color: white;
+                border: none;
+                border-radius: 8px;
+                padding: 10px 20px;
+                font-weight: 600;
+                font-size: 13px;
+                cursor: pointer;
+                box-shadow: 0 4px 10px rgba(37, 99, 235, 0.2);
+                transition: all 0.2s ease;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+            }}
+            .btn:hover {{
+                transform: translateY(-1px);
+                box-shadow: 0 6px 14px rgba(37, 99, 235, 0.3);
+                filter: brightness(1.05);
+            }}
+            .btn-secondary {{
+                background: #ffffff;
+                color: #334155;
+                border: 1px solid #cbd5e1;
+                box-shadow: none;
+            }}
+            .btn-secondary:hover {{
+                background: #f8fafc;
+                box-shadow: none;
+                transform: none;
+            }}
+            
+            /* Print Specific Styles */
+            @media print {{
+                body {{
+                    background-color: #ffffff;
+                }}
+                .invoice-card {{
+                    margin: 0;
+                    padding: 0;
+                    border: none;
+                    box-shadow: none;
+                    width: 100%;
+                    max-width: 100%;
+                }}
+                .print-btn-container {{
+                    display: none !important;
+                }}
+            }}
+           </style>
+       </head>
+       <body>
+           <div class="print-btn-container">
+               <button class="btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+           </div>
+           
+           <div class="invoice-card">
+               <!-- Header -->
+               <div class="header">
+                   <div class="logo-area">
+                       <div class="logo-icon">B</div>
+                       <div class="logo-text">
+                           <h1 class="logo-title">BUNNY'S FARM</h1>
+                           <p class="logo-subtitle">Fresh & Organic Farm Products</p>
+                       </div>
+                   </div>
+                   <div class="invoice-title-area">
+                       <h2 class="invoice-title">INVOICE</h2>
+                       <p class="invoice-num"># {invoice_no}</p>
+                   </div>
+               </div>
+               
+               <!-- Details Grid -->
+               <div class="details-grid">
+                   <div>
+                       <div class="section-label">Bill From:</div>
+                       <div class="company-name">Bunny's Farm Pvt. Ltd.</div>
+                       <div class="address-text">
+                           Inamadugu, veguru, subareddypuram,<br>
+                           NELLORE, Andhra Pradesh - 524137<br>
+                           Phone: +91 7842339368
+                       </div>
+                       <div class="tax-info">
+                           GSTIN: 36AABCB1234C1Z5<br>
+                           PAN: AABCB1234C
+                       </div>
+                   </div>
+                   <div class="invoice-meta">
+                       <div class="meta-item">
+                           <div class="meta-label">Invoice Date:</div>
+                           <div class="meta-val">{invoice_date}</div>
+                       </div>
+                       <div class="meta-item">
+                           <div class="meta-label">Due Date:</div>
+                           <div class="meta-val">{due_date}</div>
+                       </div>
+                       <div class="meta-item">
+                           <div class="meta-label">PO Number:</div>
+                           <div class="meta-val">{po_no}</div>
+                       </div>
+                   </div>
+               </div>
+               
+               <!-- Table -->
+                <div class="table-container">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th style="width: 5%; text-align: center;">#</th>
+                                <th style="width: 15%; text-align: center;">Date</th>
+                                <th style="width: 50%; text-align: left;">Description</th>
+                                <th style="width: 10%; text-align: center;">Qty</th>
+                                <th style="width: 10%; text-align: right;">Unit Price (INR)</th>
+                                <th style="width: 10%; text-align: right;">Amount (INR)</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {rows_html}
+                        </tbody>
+                    </table>
+                </div>
+                
+                <!-- Totals -->
+                <div class="totals-container">
+                    <div class="totals-left">
+                        <div class="word-amount">
+                            <div class="word-title">Amount in Words:</div>
+                            <div class="word-val">{total_words}</div>
+                        </div>
+                        <div class="bank-details">
+                           <div class="bank-title">Payment Details:</div>
+                           <div class="bank-row"><span class="bank-label">Online UPI/Mobile:</span> {online_txn}</div>
+                           <div class="bank-row"><span class="bank-label">Bank Name:</span> {bank_name}</div>
+                           <div class="bank-row"><span class="bank-label">Account Name:</span> {acc_name}</div>
+                           <div class="bank-row"><span class="bank-label">Account Num:</span> {acc_num}</div>
+                           <div class="bank-row"><span class="bank-label">IFSC Code:</span> {ifsc}</div>
+                           <div class="bank-row"><span class="bank-label">Branch:</span> {branch}</div>
+                        </div>
+                    </div>
+                    <div class="totals-right">
+                        <table class="totals-table">
+                            <tr>
+                                <td>TOTAL AMOUNT (INR)</td>
+                                <td style="text-align: right;">₹{total:,.2f}</td>
+                            </tr>
+                        </table>
+                   </div>
+               </div>
+               
+               <!-- Signature Area -->
+               <div class="sign-area">
+                   <div class="sign-box">
+                       <div class="sign-label">Authorized Signatory</div>
+                       <div style="height: 55px; border-bottom: 1px solid #cbd5e1; margin-bottom: 5px;"></div>
+                   </div>
+               </div>
+           </div>
+       </body>
+       </html>
+       """
+    return html_code
+
 def load_expenses():
     if os.path.exists(EXCEL_FILE):
         try:
             df = pd.read_excel(EXCEL_FILE, sheet_name="Expenses_Log")
+            
+            # Drop unwanted legacy columns if they exist
+            cols_to_drop = ['Category', 'Description']
+            df = df.drop(columns=[col for col in cols_to_drop if col in df.columns], errors='ignore')
+            
             df['Date'] = pd.to_datetime(df['Date']).dt.date
             df['Amount'] = pd.to_numeric(df['Amount'], errors='coerce')
             df['Timestamp'] = pd.to_datetime(df['Timestamp'])
             if 'Receipt_Image' not in df.columns:
                 df['Receipt_Image'] = ""
             df['Receipt_Image'] = df['Receipt_Image'].fillna("")
+            
+            # Save it back once to clean columns and auto-adjust widths on disk immediately
+            save_expenses(df)
+            
             return df
         except Exception as e:
             st.error(f"Error loading Excel file: {e}. Starting fresh.")
@@ -950,21 +681,15 @@ def load_expenses():
     }])
     
     # Save default entry immediately
-    try:
-        daily_summary = default_entry.groupby('Date').agg(
-            Total_Spent=('Amount', 'sum'),
-            Entries_Count=('Amount', 'count')
-        ).reset_index()
-        with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
-            default_entry.to_excel(writer, sheet_name="Expenses_Log", index=False)
-            daily_summary.to_excel(writer, sheet_name="Daily_Summaries", index=False)
-    except Exception as e:
-        st.error(f"Error creating default Excel file: {e}")
-        
+    save_expenses(default_entry)
     return default_entry
 
 def save_expenses(df):
     try:
+        # Clean up unwanted legacy columns from the dataframe
+        cols_to_drop = ['Category', 'Description']
+        df = df.drop(columns=[col for col in cols_to_drop if col in df.columns], errors='ignore')
+        
         daily_summary = df.groupby('Date').agg(
             Total_Spent=('Amount', 'sum'),
             Entries_Count=('Amount', 'count')
@@ -973,9 +698,28 @@ def save_expenses(df):
         df = df.sort_values(by="Timestamp", ascending=False)
         daily_summary = daily_summary.sort_values(by="Date", ascending=False)
         
+        from openpyxl.utils import get_column_letter
         with pd.ExcelWriter(EXCEL_FILE, engine="openpyxl") as writer:
             df.to_excel(writer, sheet_name="Expenses_Log", index=False)
             daily_summary.to_excel(writer, sheet_name="Daily_Summaries", index=False)
+            
+            # Auto-adjust column widths so no ### is shown in Excel
+            for sheet_name in writer.sheets:
+                worksheet = writer.sheets[sheet_name]
+                for col in worksheet.columns:
+                    max_len = 0
+                    col_letter = get_column_letter(col[0].column)
+                    for cell in col:
+                        val = cell.value
+                        if val is not None:
+                            # Format datetimes nicely for string length calculation
+                            if hasattr(val, 'strftime'):
+                                val_str = val.strftime('%Y-%m-%d %H:%M:%S')
+                            else:
+                                val_str = str(val)
+                            max_len = max(max_len, len(val_str))
+                    # Add a padding of 4 spaces
+                    worksheet.column_dimensions[col_letter].width = max(max_len + 4, 12)
         return True
     except Exception as e:
         st.error(f"Error saving to Excel file: {e}")
@@ -1001,54 +745,140 @@ df_expenses = load_expenses()
 # ----------------------------------------------------
 # Top Navigation Bar (With Admin Button)
 # ----------------------------------------------------
-col_title, col_admin = st.columns([3, 1])
-
-with col_title:
-    st.markdown("""
-        <div class="brand-container">
-            <span class="brand-icon">🌱</span>
-            <span class="brand-name">Bunny's Farm</span>
-        </div>
-    """, unsafe_allow_html=True)
-
-with col_admin:
-    # Toggle between Admin access and returning to Expenses entry panel
-    if st.session_state.is_admin or st.session_state.show_admin_login:
-        st.markdown('<div class="expenses-btn-container">', unsafe_allow_html=True)
-        if st.button("📝 Expenses", use_container_width=True):
-            st.session_state.is_admin = False
-            st.session_state.show_admin_login = False
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
-    else:
-        st.markdown('<div class="admin-btn-container">', unsafe_allow_html=True)
-        if st.button("🔑 Admin", use_container_width=True):
-            st.session_state.show_admin_login = True
-            st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+if not st.session_state.is_admin:
+    col_title, col_admin = st.columns([3, 1])
+    
+    with col_title:
+        st.markdown("""
+            <div class="brand-container">
+                <span class="brand-icon">🌱</span>
+                <span class="brand-name">Bunny's Farm</span>
+            </div>
+        """, unsafe_allow_html=True)
+    
+    with col_admin:
+        # Toggle between Admin access and returning to Expenses entry panel
+        if st.session_state.show_admin_login:
+            st.markdown('<div class="expenses-btn-container">', unsafe_allow_html=True)
+            if st.button("📝 Expenses", use_container_width=True):
+                st.session_state.is_admin = False
+                st.session_state.show_admin_login = False
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
+        else:
+            st.markdown('<div class="admin-btn-container">', unsafe_allow_html=True)
+            if st.button("🔑 Admin", use_container_width=True):
+                st.session_state.show_admin_login = True
+                st.rerun()
+            st.markdown('</div>', unsafe_allow_html=True)
 
 # ----------------------------------------------------
 # Admin Login Dialog Box (Renders Inline at Top)
 # ----------------------------------------------------
 if st.session_state.show_admin_login and not st.session_state.is_admin:
-    with st.form("admin_login_form"):
-        st.markdown("""
-            <div class="form-header">
-                <h3 class="form-title">🌱 Bunny's Farm - Admin Verification</h3>
-                <p class="form-subtitle">Please verify your credentials to access the command center</p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        st.markdown('<label class="custom-input-label">Username</label>', unsafe_allow_html=True)
-        username = st.text_input("Username", placeholder="Enter admin username", label_visibility="collapsed")
-        
-        st.markdown('<label class="custom-input-label">Password</label>', unsafe_allow_html=True)
-        password = st.text_input("Password", type="password", placeholder="Enter admin password", label_visibility="collapsed")
-        
-        st.markdown('<div class="primary-btn-container" style="margin-top: 20px;">', unsafe_allow_html=True)
-        login_submitted = st.form_submit_button("Verify & Access", use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-        
+    # Scope-inject CSS to match the reference image exactly (material underline inputs, full-width button, no boxes)
+    st.markdown("""
+        <style>
+            /* Reset the Streamlit form card background & border */
+            div[data-testid="stForm"] {
+                border: none !important;
+                background: transparent !important;
+                box-shadow: none !important;
+                padding: 0 !important;
+            }
+            
+            /* Material Design Underline Inputs */
+            div[data-testid="stForm"] input[type="text"],
+            div[data-testid="stForm"] input[type="password"] {
+                border: none !important;
+                border-bottom: 1.5px solid #cbd5e1 !important;
+                border-radius: 0 !important;
+                background: transparent !important;
+                padding: 12px 0 6px 0 !important;
+                font-size: 1.05rem !important;
+                color: #1e293b !important;
+                box-shadow: none !important;
+                transition: border-color 0.2s ease !important;
+                width: 100% !important;
+            }
+            div[data-testid="stForm"] input[type="text"]:focus,
+            div[data-testid="stForm"] input[type="password"]:focus {
+                border-bottom: 2.5px solid #3b82f6 !important;
+            }
+            
+            /* Custom blue full-width submit button matching reference image */
+            div[data-testid="stFormSubmitButton"] button {
+                background-color: #3b82f6 !important;
+                color: white !important;
+                font-weight: 700 !important;
+                text-transform: uppercase !important;
+                font-size: 0.9rem !important;
+                letter-spacing: 1.2px !important;
+                border-radius: 6px !important;
+                padding: 12px 20px !important;
+                border: none !important;
+                box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2) !important;
+                transition: all 0.2s ease !important;
+                width: 100% !important;
+                margin-top: 15px !important;
+            }
+            div[data-testid="stFormSubmitButton"] button:hover {
+                background-color: #2563eb !important;
+                transform: translateY(-1px) !important;
+                box-shadow: 0 6px 18px rgba(59, 130, 246, 0.3) !important;
+            }
+        </style>
+    """, unsafe_allow_html=True)
+
+    # 2-Column Split Layout matching the reference image
+    col_graphic, col_login = st.columns([1.2, 1], gap="large")
+    
+    with col_graphic:
+        st.markdown('<div class="login-graphic-marker"></div>', unsafe_allow_html=True)
+        # Render the custom generated circular logo graphic
+        if os.path.exists("bunny_farm_login_graphic.png"):
+            st.image("bunny_farm_login_graphic.png", use_container_width=True)
+        else:
+            # Fallback if graphic is copying
+            st.markdown("""
+                <div style="display: flex; align-items: center; justify-content: center; height: 350px; background: #f8fafc; border-radius: 20px; border: 2px dashed #cbd5e1;">
+                    <div style="text-align: center; color: #64748b;">
+                        <div style="font-size: 3rem;">🌱</div>
+                        <div style="font-weight: 700; margin-top: 10px;">Bunny's Farm</div>
+                        <div style="font-size: 0.8rem;">Loading Illustration Graphic...</div>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+    with col_login:
+        with st.form("admin_login_form"):
+            st.markdown("""
+                <div style="margin-top: 25px; margin-bottom: 25px;">
+                    <span style="color: #3b82f6; font-size: 0.75rem; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; font-family: 'Outfit', sans-serif;">ADMIN PORTAL</span>
+                    <h2 style="font-family: 'Outfit', sans-serif; font-weight: 800; font-size: 1.8rem; color: #0f172a; margin: 5px 0 0 0;">Secure Sign In</h2>
+                </div>
+            """, unsafe_allow_html=True)
+            
+            st.markdown('<label style="color: #64748b; font-size: 0.85rem; font-weight: 600; display: block; margin-top: 20px; font-family: \'Outfit\', sans-serif;">Username *</label>', unsafe_allow_html=True)
+            username = st.text_input("Username", placeholder="Enter admin username", label_visibility="collapsed", key="admin_username_input")
+            
+            st.markdown('<label style="color: #64748b; font-size: 0.85rem; font-weight: 600; display: block; margin-top: 20px; font-family: \'Outfit\', sans-serif;">Password *</label>', unsafe_allow_html=True)
+            password = st.text_input("Password", type="password", placeholder="Enter admin password", label_visibility="collapsed", key="admin_password_input")
+            
+            # Checkbox exactly matching "Login with otp" style
+            st.markdown('<div style="margin-top: 20px;"></div>', unsafe_allow_html=True)
+            remember_me = st.checkbox("Keep me logged in", key="login_remember_check")
+            
+            # The submit button
+            login_submitted = st.form_submit_button("LOGIN")
+            
+            # Decorative disclaimer matching reference image
+            st.markdown("""
+                <div style="margin-top: 40px; color: #94a3b8; font-size: 0.72rem; line-height: 1.4; border-top: 1px solid #f1f5f9; padding-top: 15px; font-family: 'Inter', sans-serif;">
+                    By proceeding you are agreeing to our <a href="#" style="color: #3b82f6; text-decoration: underline; font-weight: 500;">Terms and Conditions</a>
+                </div>
+            """, unsafe_allow_html=True)
+            
         if login_submitted:
             if username == "mylukhanush" and password == "Bunny@1806":
                 st.session_state.is_admin = True
@@ -1062,97 +892,152 @@ if st.session_state.show_admin_login and not st.session_state.is_admin:
 # Main Content: Conditional View
 # ----------------------------------------------------
 if st.session_state.is_admin:
-    # ------------------ ADMIN MODE ------------------
-    st.markdown("""
-        <div class="admin-header">
-            <div class="admin-badge">Bunny's Farm • ADMIN</div>
-            <h2 class="admin-title">Financial Command Center</h2>
-            <p class="admin-subtitle">Real-time expense monitoring and database management</p>
+    # ------------------ ADMIN SIDEBAR NAVIGATION ------------------
+    st.sidebar.markdown("""
+        <div class="sidebar-brand-panel">
+            <span class="sidebar-brand-icon">🌱</span>
+            <div class="sidebar-brand-details">
+                <span class="sidebar-brand-name">Bunny's Farm</span>
+                <span class="sidebar-brand-badge">ADMIN MODE</span>
+            </div>
         </div>
     """, unsafe_allow_html=True)
     
-    # Control Bar with Date Selector
-    col_header, col_date = st.columns([2, 1])
-    with col_header:
-        st.markdown(f"""
-            <div style="padding-top: 12px; display: flex; align-items: center; gap: 8px;">
-                <span class="status-indicator"></span>
-                <span style="color: #475569; font-weight: 600; font-size: 0.82rem; letter-spacing: 0.06em;">ACTIVE LEDGER FILTER</span>
+    st.sidebar.markdown("""
+        <div class="sidebar-profile-card">
+            <div class="profile-avatar">👑</div>
+            <div class="profile-info">
+                <div class="profile-name">Mylu Khanush</div>
+                <div class="profile-role">Administrator</div>
+            </div>
+        </div>
+    """, unsafe_allow_html=True)
+    
+    # Left Navigation Menu styled as vertical pills in CSS
+    nav_selection = st.sidebar.radio(
+        "Navigation Menu",
+        ["📊 Dashboard", "📋 View All Data", "📄 Generate Invoice", "⚙️ Export & Management"],
+        key="admin_sidebar_nav"
+    )
+    
+    # Small spacing before the logout container (removed duplicate borders and huge spacer padding to make it fit perfectly!)
+    st.sidebar.markdown('<div style="margin-top: 15px;"></div>', unsafe_allow_html=True)
+    st.sidebar.markdown('<div class="sidebar-logout-container">', unsafe_allow_html=True)
+    if st.sidebar.button("📝 Exit Admin Console", use_container_width=True, key="sidebar_logout_btn"):
+        st.session_state.is_admin = False
+        st.session_state.show_admin_login = False
+        st.rerun()
+    st.sidebar.markdown('</div>', unsafe_allow_html=True)
+
+    # ------------------ ADMIN MAIN CONTENT AREA ------------------
+    # Render active section based on sidebar nav selection
+    if nav_selection == "📊 Dashboard":
+        st.markdown("""
+            <div class="admin-header">
+                <div class="admin-badge">Bunny's Farm • ADMIN</div>
+                <h2 class="admin-title">Financial Command Center</h2>
+                <p class="admin-subtitle">Real-time expense monitoring and database management</p>
             </div>
         """, unsafe_allow_html=True)
-    with col_date:
-        filter_date = st.date_input("Select Date", datetime.date.today(), max_value=datetime.date.today(), label_visibility="collapsed")
+        
+        # Control Bar with Date Selector
+        st.markdown('<div class="dashboard-header-marker"></div>', unsafe_allow_html=True)
+        col_header, col_date = st.columns([2, 1])
+        with col_header:
+            st.markdown(f"""
+                <div style="padding-top: 12px; display: flex; align-items: center; gap: 8px;">
+                    <span class="status-indicator"></span>
+                    <span style="color: #475569; font-weight: 600; font-size: 0.82rem; letter-spacing: 0.06em;">ACTIVE LEDGER FILTER</span>
+                </div>
+            """, unsafe_allow_html=True)
+        with col_date:
+            filter_date = st.date_input("Select Date", datetime.date.today(), max_value=datetime.date.today(), label_visibility="collapsed", key="dash_filter_date")
 
-    # Filter expenses for the selected date
-    df_filtered = df_expenses[df_expenses['Date'] == filter_date]
-    
-    # Calculate metrics relative to selected date
-    selected_day_total = df_filtered['Amount'].sum() if not df_filtered.empty else 0.0
-    
-    # Calculate monthly total for the month of the selected date
-    month_df = df_expenses[
-        df_expenses['Date'].apply(lambda d: d.year == filter_date.year and d.month == filter_date.month)
-    ]
-    month_total = month_df['Amount'].sum() if not month_df.empty else 0.0
-    
-    # Dynamic labels based on whether selected date is today
-    is_today = (filter_date == datetime.date.today())
-    
-    card1_label = "Today's Total" if is_today else f"{filter_date.strftime('%d-%b')} Total"
-    card1_desc = "Transactions recorded today" if is_today else f"Transactions on {filter_date.strftime('%d-%b-%Y')}"
-    
-    card3_label = "This Month" if is_today else filter_date.strftime('%B %Y')
-    card3_desc = "Accumulated monthly spending" if is_today else f"Total spent in {filter_date.strftime('%B %Y')}"
-    
-    st.markdown(f"""
-        <div class="metric-grid">
-            <div class="metric-card accent">
-                <div class="metric-icon-container" style="background: rgba(79, 70, 229, 0.08); color: #4f46e5;">
-                    ₹
+        # Filter expenses for the selected date
+        df_filtered = df_expenses[df_expenses['Date'] == filter_date]
+        
+        # Calculate metrics relative to selected date
+        selected_day_total = df_filtered['Amount'].sum() if not df_filtered.empty else 0.0
+        
+        # Calculate monthly total for the month of the selected date
+        month_df = df_expenses[
+            df_expenses['Date'].apply(lambda d: d.year == filter_date.year and d.month == filter_date.month)
+        ]
+        month_total = month_df['Amount'].sum() if not month_df.empty else 0.0
+        
+        # Dynamic labels based on whether selected date is today
+        is_today = (filter_date == datetime.date.today())
+        
+        card1_label = "Today's Total" if is_today else f"{filter_date.strftime('%d-%b')} Total"
+        card1_desc = "Transactions recorded today" if is_today else f"Transactions on {filter_date.strftime('%d-%b-%Y')}"
+        
+        card3_label = "This Month" if is_today else filter_date.strftime('%B %Y')
+        card3_desc = "Accumulated monthly spending" if is_today else f"Total spent in {filter_date.strftime('%B %Y')}"
+        
+        st.markdown(f"""
+            <div class="metric-grid">
+                <div class="metric-card accent">
+                    <div class="metric-icon-container" style="background: rgba(79, 70, 229, 0.08); color: #4f46e5;">
+                        ₹
+                    </div>
+                    <div class="metric-content">
+                        <span class="metric-label">{card1_label}</span>
+                        <span class="metric-val">₹{selected_day_total:,.2f}</span>
+                        <span class="metric-desc">{card1_desc}</span>
+                    </div>
                 </div>
-                <div class="metric-content">
-                    <span class="metric-label">{card1_label}</span>
-                    <span class="metric-val">₹{selected_day_total:,.2f}</span>
-                    <span class="metric-desc">{card1_desc}</span>
+                <div class="metric-card">
+                    <div class="metric-icon-container" style="background: rgba(16, 185, 129, 0.08); color: #059669;">
+                        📈
+                    </div>
+                    <div class="metric-content">
+                        <span class="metric-label">{card3_label}</span>
+                        <span class="metric-val">₹{month_total:,.2f}</span>
+                        <span class="metric-desc">{card3_desc}</span>
+                    </div>
                 </div>
             </div>
-            <div class="metric-card">
-                <div class="metric-icon-container" style="background: rgba(16, 185, 129, 0.08); color: #059669;">
-                    📈
-                </div>
-                <div class="metric-content">
-                    <span class="metric-label">{card3_label}</span>
-                    <span class="metric-val">₹{month_total:,.2f}</span>
-                    <span class="metric-desc">{card3_desc}</span>
-                </div>
-            </div>
-        </div>
-    """, unsafe_allow_html=True)
-    
-    # Manage Data Tabs
-    tab_logs, tab_charts, tab_controls = st.tabs(["📋 View All Data", "📊 Visual Analytics", "⚙️ Export & Management"])
-    
-    with tab_logs:
-        col_logs_header, col_logs_refresh = st.columns([5, 1])
+        """, unsafe_allow_html=True)
+
+    elif nav_selection == "📋 View All Data":
+        st.markdown('<div class="ledger-header-marker"></div>', unsafe_allow_html=True)
+        col_logs_header, col_logs_actions = st.columns([2, 1.5])
         with col_logs_header:
             st.markdown("""
-                <div class="section-header">
+                <div class="section-header" style="margin-bottom: 10px;">
                     <div>
                         <h3 class="section-title">Ledger Transactions</h3>
                         <p class="section-subtitle">A list of recorded expenses for the selected date, sorted by time</p>
                     </div>
                 </div>
             """, unsafe_allow_html=True)
-        with col_logs_refresh:
-            st.markdown('<div style="padding-top: 12px;"></div>', unsafe_allow_html=True)
-            if st.button("🔄 Refresh", use_container_width=True, key="logs_refresh_btn"):
-                st.rerun()
+        with col_logs_actions:
+            st.markdown('<div class="ledger-header-marker"></div>', unsafe_allow_html=True)
+            col_ref, col_dt = st.columns([1, 1.2])
+            with col_ref:
+                st.markdown('<div style="padding-top: 5px;"></div>', unsafe_allow_html=True)
+                if st.button("🔄 Refresh", use_container_width=True, key="logs_refresh_btn"):
+                    st.rerun()
+            with col_dt:
+                st.markdown('<div style="padding-top: 5px;"></div>', unsafe_allow_html=True)
+                filter_date = st.date_input("Select Date", datetime.date.today(), max_value=datetime.date.today(), label_visibility="collapsed", key="ledger_filter_date")
+
+        # Filter expenses for the selected date
+        df_filtered = df_expenses[df_expenses['Date'] == filter_date]
         if not df_filtered.empty:
             display_df = df_filtered.copy().sort_values(by="Timestamp", ascending=False)
             display_df['Formatted Time'] = display_df['Timestamp'].dt.strftime('%d-%b-%Y %I:%M %p')
             
+            # Select columns and reset index for sequential row styling
+            ledger_table_df = display_df[['Formatted Time', 'Expenditure', 'Amount']].reset_index(drop=True)
+            # Apply professional alternating row shading
+            styled_ledger_df = ledger_table_df.style.apply(
+                lambda row: ['background-color: #f8fafc' if row.name % 2 == 1 else 'background-color: #ffffff' for _ in row],
+                axis=1
+            )
+            
             st.dataframe(
-                display_df[['Formatted Time', 'Expenditure', 'Amount']],
+                styled_ledger_df,
                 column_config={
                     "Formatted Time": "Date & Time",
                     "Expenditure": "Expenditure (Description)",
@@ -1214,8 +1099,17 @@ if st.session_state.is_admin:
         if not df_expenses.empty:
             recent_df = df_expenses.copy().sort_values(by="Timestamp", ascending=False).head(5)
             recent_df['Formatted Time'] = recent_df['Timestamp'].dt.strftime('%d-%b-%Y %I:%M %p')
+            
+            # Select columns and reset index for sequential row styling
+            recent_table_df = recent_df[['Formatted Time', 'Expenditure', 'Amount']].reset_index(drop=True)
+            # Apply professional alternating row shading
+            styled_recent_df = recent_table_df.style.apply(
+                lambda row: ['background-color: #f8fafc' if row.name % 2 == 1 else 'background-color: #ffffff' for _ in row],
+                axis=1
+            )
+            
             st.dataframe(
-                recent_df[['Formatted Time', 'Expenditure', 'Amount']],
+                styled_recent_df,
                 column_config={
                     "Formatted Time": "Date & Time",
                     "Expenditure": "Expenditure (Description)",
@@ -1228,81 +1122,122 @@ if st.session_state.is_admin:
         else:
             st.info("No transactions recorded in the database yet.")
             
-    with tab_charts:
+
+            
+    elif nav_selection == "📄 Generate Invoice":
         st.markdown("""
             <div class="section-header">
                 <div>
-                    <h3 class="section-title">Spending Analytics</h3>
-                    <p class="section-subtitle">Visual overview of daily spending patterns and history</p>
+                    <h3 class="section-title">📄 Premium Invoice Generator</h3>
+                    <p class="section-subtitle">Generate and download professional, print-ready daily and monthly billing invoices</p>
                 </div>
             </div>
         """, unsafe_allow_html=True)
         
-        if not df_expenses.empty:
-            daily_trend = df_expenses.groupby('Date')['Amount'].sum().reset_index().sort_values(by="Date")
-            daily_trend = daily_trend.tail(15).copy()
-            daily_trend['Date_Label'] = daily_trend['Date'].apply(lambda d: d.strftime('%d-%b'))
+        # Grid for invoice selection options
+        col_inv_type, col_inv_date = st.columns([1, 1])
+        
+        with col_inv_type:
+            inv_type = st.radio(
+                "Select Invoice Duration",
+                ["📅 Daily Invoice (Single Date)", "📆 Custom Range Invoice"],
+                horizontal=True,
+                key="inv_duration_radio"
+            )
             
-            # Center the chart for a clean desktop layout
-            col_chart_left, col_chart_center, col_chart_right = st.columns([1, 8, 1])
-            
-            with col_chart_center:
-                st.markdown("""
-                    <div style="text-align: center; margin-bottom: 20px;">
-                        <h4 style="color: #0f172a; font-weight: 700; font-size: 1.05rem; margin: 0 0 4px 0;">Daily Spend History (Last 15 Days)</h4>
-                        <p style="color: #64748b; font-size: 0.82rem; margin: 0;">Chronological overview of daily farm expenditures</p>
+        with col_inv_date:
+            if "Daily" in inv_type:
+                selected_date = st.date_input("Select Date", datetime.date.today(), key="inv_single_date")
+                df_filtered = df_expenses[df_expenses['Date'] == selected_date]
+                date_label = selected_date.strftime('%d-%b-%Y')
+                invoice_no = f"INV-{selected_date.strftime('%Y%m%d')}-001"
+            else:
+                range_dates = st.date_input(
+                    "Select Date Range",
+                    [datetime.date.today().replace(day=1), datetime.date.today()],
+                    key="inv_range_dates"
+                )
+                if isinstance(range_dates, (list, tuple)) and len(range_dates) == 2:
+                    start_date, end_date = range_dates
+                    df_filtered = df_expenses[(df_expenses['Date'] >= start_date) & (df_expenses['Date'] <= end_date)]
+                    date_label = f"{start_date.strftime('%d %b %Y')} to {end_date.strftime('%d %b %Y')}"
+                    invoice_no = f"INV-{start_date.strftime('%Y%m')}-{end_date.strftime('%d')}"
+                else:
+                    df_filtered = pd.DataFrame()
+                    date_label = ""
+                    invoice_no = "INV-TEMP"
+                    
+        # Generate and render
+        if not df_filtered.empty:
+            st.markdown(f"""
+                <div class="premium-alert success">
+                    <div class="alert-icon">✨</div>
+                    <div class="alert-content">
+                        <h4 class="alert-title">Transactions Located</h4>
+                        <p class="alert-desc">Found <strong>{len(df_filtered)}</strong> expense transactions for the selected duration (Total: <strong>₹{df_filtered['Amount'].sum():,.2f}</strong>). You can now preview or download your invoice below.</p>
                     </div>
-                """, unsafe_allow_html=True)
-                
-                # Check number of elements to dynamically adjust bar gap (prevents single bars from being fat!)
-                num_bars = len(daily_trend)
-                bgap = 0.5 if num_bars > 5 else 0.7 if num_bars > 1 else 0.85
-                
-                fig_bar = px.bar(
-                    daily_trend,
-                    x='Date_Label',
-                    y='Amount',
-                    color_discrete_sequence=['#6366f1']
-                )
-                
-                fig_bar.update_traces(
-                    marker_color='#6366f1',
-                    marker_line_width=0,
-                    hovertemplate="<b>%{x}</b><br>Spent: ₹%{y:,.2f}<extra></extra>"
-                )
-                
-                fig_bar.update_layout(
-                    paper_bgcolor='rgba(0,0,0,0)',
-                    plot_bgcolor='rgba(0,0,0,0)',
-                    font_color='#475569',
-                    xaxis=dict(
-                        showgrid=False,
-                        title=None,
-                        tickfont=dict(size=11, color='#64748b')
-                    ),
-                    yaxis=dict(
-                        showgrid=True,
-                        gridcolor='rgba(226, 232, 240, 0.8)',
-                        title=None,
-                        tickprefix='₹',
-                        tickfont=dict(size=11, color='#64748b')
-                    ),
-                    margin=dict(t=10, b=10, l=10, r=10),
-                    height=320,
-                    bargap=bgap
-                )
-                
-                st.plotly_chart(fig_bar, use_container_width=True, config={'displayModeBar': False})
-        else:
-            st.markdown("""
-                <div class="empty-state" style="padding: 60px 20px;">
-                    <div class="empty-state-icon">📊</div>
-                    <h4 class="empty-state-title">No analytics available</h4>
-                    <p class="empty-state-desc">Please record some transactions to generate spending charts.</p>
                 </div>
             """, unsafe_allow_html=True)
             
-    with tab_controls:
+            bank_info = {
+                "online_txn": "7842339268",
+                "bank_name": "BANK OF BARODA",
+                "acc_name": "MYLU KHANUSH",
+                "acc_num": "55250100012962",
+                "ifsc": "BARB0DARGAM",
+                "branch": "Dargamitta, NELLORE"
+            }
+            
+            invoice_html_content = generate_invoice_html(
+                df=df_filtered,
+                date_label=date_label,
+                invoice_no=invoice_no,
+                po_no="PO-7843-2026",
+                bank_info=bank_info
+            )
+            
+            # Action Buttons: Preview vs Download HTML
+            col_act1, col_act2 = st.columns([1, 1])
+            with col_act1:
+                if st.button("👁️ Preview Invoice in App", use_container_width=True, key="preview_invoice_btn"):
+                    st.session_state.show_invoice_preview = True
+            with col_act2:
+                # Provide direct download button of the HTML file
+                st.download_button(
+                    label="📥 Download HTML Invoice (Print Ready)",
+                    data=invoice_html_content,
+                    file_name=f"Invoice_{invoice_no}.html",
+                    mime="text/html",
+                    use_container_width=True,
+                    key="download_invoice_html_btn"
+                )
+                
+            # If show preview, render in a neat iframe wrapped in a browser frame
+            if st.session_state.get("show_invoice_preview", False):
+                st.markdown("<hr style='border: 0; border-top: 1px solid #e2e8f0; margin: 30px 0;'/>", unsafe_allow_html=True)
+                st.markdown(f"""
+                    <div class="mock-browser-header-only">
+                        <div class="browser-dots">
+                            <div class="browser-dot red"></div>
+                            <div class="browser-dot yellow"></div>
+                            <div class="browser-dot green"></div>
+                        </div>
+                        <div class="browser-url-bar">invoice-preview.fintrack.local/{invoice_no}.html</div>
+                    </div>
+                """, unsafe_allow_html=True)
+                st.components.v1.html(invoice_html_content, height=800, scrolling=True)
+        else:
+            st.markdown(f"""
+                <div class="premium-alert warning">
+                    <div class="alert-icon">⚠️</div>
+                    <div class="alert-content">
+                        <h4 class="alert-title">No Transactions Recorded</h4>
+                        <p class="alert-desc">No expense transactions recorded for the selected duration (<strong>{date_label}</strong>). Select another date to generate an invoice.</p>
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+            
+    elif nav_selection == "⚙️ Export & Management":
         st.markdown("""
             <div class="section-header">
                 <div>
@@ -1331,148 +1266,7 @@ if st.session_state.is_admin:
             
         st.divider()
         
-        # WhatsApp Notifications Configurations & Compiler
-        st.markdown("""
-            <div class="section-header" style="margin-top: 10px;">
-                <div>
-                    <h3 class="section-title">📱 WhatsApp Notifications & Automation</h3>
-                    <p class="section-subtitle">Configure owner's contact and set up automated end-of-day reports</p>
-                </div>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Grid layout for Phone Number and API Key inputs
-        col_phone_input, col_key_input = st.columns([1, 1])
-        
-        with col_phone_input:
-            st.markdown('<p style="color: #475569; font-size: 0.82rem; font-weight: 700; margin-bottom: 4px;">WhatsApp Phone Number (with country code)</p>', unsafe_allow_html=True)
-            phone_number = st.text_input(
-                "Phone Number",
-                value=st.session_state.whatsapp_phone,
-                placeholder="e.g. 917842339268",
-                label_visibility="collapsed",
-                key="whatsapp_phone_input"
-            )
-            
-        with col_key_input:
-            st.markdown('<p style="color: #475569; font-size: 0.82rem; font-weight: 700; margin-bottom: 4px;">CallMeBot API Key (for automatic summaries)</p>', unsafe_allow_html=True)
-            apikey_val = st.text_input(
-                "CallMeBot API Key",
-                value=st.session_state.whatsapp_apikey,
-                placeholder="Enter API key for automation",
-                type="password",
-                label_visibility="collapsed",
-                key="whatsapp_apikey_input"
-            )
-            
-        # Display instructions for CallMeBot key
-        st.markdown("""
-            <div style="
-                background: rgba(79, 70, 229, 0.04);
-                border: 1px solid rgba(79, 70, 229, 0.15);
-                border-radius: 12px;
-                padding: 12px 16px;
-                margin-top: 8px;
-                margin-bottom: 12px;
-            ">
-                <p style="color: #4f46e5; font-size: 0.82rem; font-weight: 700; margin: 0 0 6px 0; display: flex; align-items: center; gap: 6px;">
-                    🤖 How to get your FREE WhatsApp Automation Key:
-                </p>
-                <ol style="color: #475569; font-size: 0.78rem; margin: 0; padding-left: 18px; line-height: 1.5;">
-                    <li>Add the active bot number <b>+34 694 23 41 84</b> (CallMeBot) to your contacts.</li>
-                    <li>Send the message <code>I allow callmebot to send me messages</code> via WhatsApp.</li>
-                    <li>The bot will reply with your unique <b>API Key</b> (usually within 1–2 minutes). Enter it above and save!</li>
-                </ol>
-                <div style="margin-top: 10px; margin-bottom: 5px;">
-                    <a href="https://wa.me/34694234184?text=I%20allow%20callmebot%20to%20send%20me%20messages" target="_blank" style="
-                        display: inline-flex;
-                        align-items: center;
-                        gap: 6px;
-                        background: #25D366;
-                        color: white;
-                        text-decoration: none;
-                        padding: 8px 14px;
-                        border-radius: 8px;
-                        font-size: 0.78rem;
-                        font-weight: 700;
-                        box-shadow: 0 2px 5px rgba(37, 211, 102, 0.2);
-                        transition: all 0.2s ease;
-                    ">
-                        💬 Click Here to Chat & Get Key Instantly
-                    </a>
-                </div>
-                <p style="color: #64748b; font-size: 0.72rem; margin: 6px 0 0 0; font-style: italic;">
-                    ⏰ <b>Automation Schedule:</b> A summary will be sent automatically to your WhatsApp every day at <b>9:30 PM</b> in the background.
-                </p>
-            </div>
-        """, unsafe_allow_html=True)
-        
-        # Save button taking full width below
-        if st.button("💾 Save Contact & Automation Settings", use_container_width=True, key="save_whatsapp_settings_btn"):
-            cleaned_phone = "".join(c for c in phone_number if c.isdigit())
-            # Auto prefix country code '91' for standard 10-digit Indian numbers
-            if len(cleaned_phone) == 10:
-                cleaned_phone = "91" + cleaned_phone
-                
-            st.session_state.whatsapp_phone = cleaned_phone
-            st.session_state.whatsapp_apikey = apikey_val.strip()
-            
-            # Save to persistent file
-            settings = load_settings()
-            settings["whatsapp_phone"] = cleaned_phone
-            settings["whatsapp_apikey"] = apikey_val.strip()
-            save_settings(settings)
-            
-            st.success("Notification settings saved successfully!")
-            st.rerun()
-            
-        # Daily Summary Generator
-        st.markdown('<p style="color: #475569; font-size: 0.88rem; font-weight: 600; margin-top: 15px; margin-bottom: 8px;">📊 Today\'s WhatsApp Summary Compiler</p>', unsafe_allow_html=True)
-        
-        # Calculate today's entries
-        today_date = datetime.date.today()
-        df_today = df_expenses[df_expenses['Date'] == today_date]
-        
-        if not df_today.empty:
-            total_spent = df_today['Amount'].sum()
-            entries_count = len(df_today)
-            
-            # Format the breakdown message
-            message_lines = [
-                "🌱 *Bunny's Farm Daily Expense Summary*",
-                f"📅 *Date:* {today_date.strftime('%d-%b-%Y')}",
-                "-----------------------------",
-                f"Total Spent Today: *₹{total_spent:,.2f}*",
-                f"Total Transactions: *{entries_count} entries*",
-                "",
-                "*Breakdown:*"
-            ]
-            
-            for idx, row in df_today.sort_values(by="Timestamp", ascending=True).iterrows():
-                # Format timestamp safely
-                time_str = row['Timestamp'].strftime('%I:%M %p') if isinstance(row['Timestamp'], datetime.datetime) else ""
-                message_lines.append(f"• {row['Expenditure']}: *₹{row['Amount']:,.2f}* ({time_str})")
-                
-            message_lines.append("-----------------------------")
-            message_lines.append("_Generated by FinTrack Expense Tracker._")
-            
-            summary_text = "\n".join(message_lines)
-            
-            # Show preview
-            st.text_area("Message Preview", value=summary_text, height=140, disabled=True, key="whatsapp_summary_preview")
-            
-            # Create WhatsApp URL
-            encoded_text = urllib.parse.quote(summary_text)
-            whatsapp_url = f"https://api.whatsapp.com/send?text={encoded_text}"
-            if st.session_state.whatsapp_phone:
-                whatsapp_url = f"https://api.whatsapp.com/send?phone={st.session_state.whatsapp_phone}&text={encoded_text}"
-                
-            # Render link button
-            st.link_button("💬 Send Daily Summary via WhatsApp", whatsapp_url, use_container_width=True)
-        else:
-            st.info("No transactions logged today yet. Record some expenses to compile a summary!")
-            
-        st.divider()
+        st.markdown('<div class="maint-header-marker"></div>', unsafe_allow_html=True)
         col_maint_title, col_maint_refresh, col_maint_date = st.columns([10, 3, 5])
         with col_maint_title:
             st.markdown("""
@@ -1546,7 +1340,7 @@ if st.session_state.is_admin:
         else:
             st.markdown(f'<p style="color: #64748b; font-size: 0.88rem; font-style: italic; margin-top: 10px;">No entries to manage for {delete_date.strftime("%d-%b-%Y")}.</p>', unsafe_allow_html=True)
 
-else:
+elif not st.session_state.show_admin_login:
     # ------------------ REGULAR USER MODE ------------------
 
     with st.form("public_entry_form", clear_on_submit=True):
@@ -2154,7 +1948,7 @@ else:
         
         # We auto-generate the Date and Time in the background
         st.markdown('<div class="primary-btn-container" style="margin-top: 20px;">', unsafe_allow_html=True)
-        submit_clicked = st.form_submit_button("Submit Transaction", use_container_width=True)
+        submit_clicked = st.form_submit_button("Submit Transaction", use_container_width=False)
         st.markdown('</div>', unsafe_allow_html=True)
         
         if submit_clicked:
@@ -2292,12 +2086,7 @@ components.html("""
                     btn.classList.add('admin-btn-custom');
                 }
             }
-            // Check for WhatsApp button
-            else if (text.includes('WhatsApp')) {
-                if (!btn.classList.contains('whatsapp-btn-custom')) {
-                    btn.classList.add('whatsapp-btn-custom');
-                }
-            }
+
             // Check for Download button
             else if (text.includes('Download')) {
                 if (!btn.classList.contains('download-btn-custom')) {
@@ -2324,13 +2113,55 @@ components.html("""
             }
         });
     };
+
+    // Advanced dynamic hiding of parent containers for hidden inputs to remove whitespace
+    const hideHiddenInputs = () => {
+        const doc = window.parent.document;
+        if (!doc) return;
+        
+        // Find textareas and hide their parent element containers
+        const textareas = doc.querySelectorAll('textarea');
+        textareas.forEach(ta => {
+            const label = ta.closest('div[data-testid="stTextArea"]')?.querySelector('label');
+            if ((label && label.textContent.includes('Image Base64')) || ta.getAttribute('aria-label') === 'Image Base64') {
+                const container = ta.closest('div[data-testid="element-container"]');
+                if (container && container.style.display !== 'none') {
+                    container.style.setProperty('display', 'none', 'important');
+                    container.style.setProperty('height', '0px', 'important');
+                    container.style.setProperty('margin', '0px', 'important');
+                    container.style.setProperty('padding', '0px', 'important');
+                    container.style.setProperty('overflow', 'hidden', 'important');
+                }
+            }
+        });
+        
+        // Find inputs and hide their parent element containers
+        const inputs = doc.querySelectorAll('input');
+        inputs.forEach(inp => {
+            const label = inp.closest('div[data-testid="stTextInput"]')?.querySelector('label');
+            if ((label && label.textContent.includes('Image Filename')) || inp.getAttribute('aria-label') === 'Image Filename') {
+                const container = inp.closest('div[data-testid="element-container"]');
+                if (container && container.style.display !== 'none') {
+                    container.style.setProperty('display', 'none', 'important');
+                    container.style.setProperty('height', '0px', 'important');
+                    container.style.setProperty('margin', '0px', 'important');
+                    container.style.setProperty('padding', '0px', 'important');
+                    container.style.setProperty('overflow', 'hidden', 'important');
+                }
+            }
+        });
+    };
     
     // Execute immediately
     styleButtons();
+    hideHiddenInputs();
     
-    // Run periodically to catch Streamlit state changes and tab switches
+    // Run periodically to catch Streamlit state changes, page reruns, and tab switches
     if (!window.buttonSpacerInterval) {
-        window.buttonSpacerInterval = setInterval(styleButtons, 200);
+        window.buttonSpacerInterval = setInterval(() => {
+            styleButtons();
+            hideHiddenInputs();
+        }, 100);
     }
 
     // --- React controlled input setter bypass ---
@@ -2399,19 +2230,32 @@ components.html("""
             const doc = window.parent.document;
             if (!doc) return;
             
-            const hiddenContainer = doc.querySelector('.hidden-input-container');
-            if (hiddenContainer) {
-                const base64Area = hiddenContainer.querySelector('textarea');
-                const filenameInput = hiddenContainer.querySelector('input');
-                
-                if (base64Area) {
-                    const val = data.images ? data.images : data.base64;
-                    setReactInputValue(base64Area, val);
+            let base64Area = null;
+            let filenameInput = null;
+            
+            const textareas = doc.querySelectorAll('textarea');
+            textareas.forEach(ta => {
+                const label = ta.closest('div[data-testid="stTextArea"]')?.querySelector('label');
+                if ((label && label.textContent.includes('Image Base64')) || ta.getAttribute('aria-label') === 'Image Base64') {
+                    base64Area = ta;
                 }
-                if (filenameInput) {
-                    const fname = data.images ? "multi_upload.json" : data.filename;
-                    setReactInputValue(filenameInput, fname);
+            });
+            
+            const inputs = doc.querySelectorAll('input');
+            inputs.forEach(inp => {
+                const label = inp.closest('div[data-testid="stTextInput"]')?.querySelector('label');
+                if ((label && label.textContent.includes('Image Filename')) || inp.getAttribute('aria-label') === 'Image Filename') {
+                    filenameInput = inp;
                 }
+            });
+            
+            if (base64Area) {
+                const val = data.images ? data.images : data.base64;
+                setReactInputValue(base64Area, val);
+            }
+            if (filenameInput) {
+                const fname = data.images ? "multi_upload.json" : data.filename;
+                setReactInputValue(filenameInput, fname);
             }
         }
     });
